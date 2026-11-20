@@ -113,6 +113,6 @@ TestFlight; decide after the spike.
 - Any iPhone model: capabilities at run time, nothing hard-coded per model.
 - Repo split as above. The `snap-cam` plugin repo is public.
 
-## Open questions (user)
-
-1. Free Apple ID first, or a paid developer account now?
+- Free Apple ID (personal team); the iPhone build is reinstalled every 7 days.
+- Development: UI and networking in the iOS Simulator with a fake camera source;
+  capture on the real device.
