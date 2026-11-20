@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "snapcam",
+  "description": "SnapCam: iPhone / Desk View photos into Claude Code",
+  "owner": { "name": "Danil Chernov" },
+  "plugins": [
+    {
+      "name": "snap-cam",
+      "source": "./",
+      "description": "Mod: one-click photo from iPhone (Continuity Camera) or Desk View into the chat",
+      "category": "productivity"
+    }
+  ]
+}
