@@ -1,6 +1,6 @@
 # 0001 — iPhone companion app, talking to the Mac without a server
 
-Status: Accepted (2026-11-21)
+Status: Accepted (2026-11-21); "Pairing and security" superseded by [0002](0002-pinned-identities-and-app-socket.md)
 
 ## Context
 

@@ -1,17 +1,18 @@
 # snap-cam — developer notes (handover, 2026-11-21)
 
 Claude Code mod + tiny macOS app. Lets the user (and the model) take a photo with the
-iPhone (Continuity Camera) or Desk View and get it into the session. Built 2026-11-16…19.
-Design decisions: `decisions/`.
+iPhone (SnapCam iPhone app, else Continuity Camera) or Desk View and get it into the
+session. Built 2026-11-16…19; iPhone app path 2026-11-21 (0.8.0).
+Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapcam-app`.
 
 ## Files
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.7.0) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.0) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing}` |
-| `helper/SnapCam.swift` + `helper/Info.plist` | the camera app, built on first use |
+| `helper/SnapCam.swift` + `helper/Info.plist` | the Continuity/Desk View helper, built on first use |
 | `README.md` | user-facing summary |
 
 Runtime state (outside the repo): `~/Library/Application Support/snap-cam/`
@@ -25,9 +26,24 @@ Photos: `~/Pictures/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
 - **Band above the prompt** (`ui.render AbovePrompt`, desktop/terminal/vscode, not mobile):
   row 1 = tray of pending thumbnails (🔍 opens the preview pane, ✕ drops it); row 2 =
   `📷 iPhone`, `🗂 DeskView`, `⚡ Fast Capture` (last-used camera, auto-shot, delay 0).
-- **Shot flow** (`shoot` → `runHelper`): `ensureApp` rebuilds SnapCam when
-  `helper/SnapCam.swift` ≠ `built.swift` (swiftc + ad-hoc codesign), `pkill -x SnapCam`,
-  then `open -W -n SnapCam.app --args <mode> <out.jpg> <manual|delaySec> <status> [flash]`.
+- **iPhone app path** (`shoot` → `shootPhone`, iPhone mode only): `findCli` =
+  `$SNAPCAM_CLI`, else `~/Applications/SnapCam.app/Contents/Helpers/snapcam-cli`, else
+  `/Applications/…`. Runs `snapcam-cli capture --json --delay <s> --timeout 25
+  --preview <ClaudeSnaps/iphone-stamp.jpg> --preview-size 2400 [--lens] [--zoom]
+  [--flash]` (flash defaults to `flash.txt`). The CLI talks to SnapCam for Mac over
+  `~/Library/Application Support/SnapCam/control.sock`, launching the app if needed; the
+  app owns pairing and the phone connection. `--preview` writes an upright JPEG (EXIF
+  orientation applied, ImageIO). JSON: path, original, width/height (upright), format,
+  lens, zoom, phone, ms, preview. Exit 0 → the preview is the snap; **69** (no app /
+  not paired / phone app closed / timed out) → Continuity helper with the reason in the
+  tool text; 1 or other → `deny`. Band `📷 iPhone` / Fast Capture use it too (shot at
+  once, delay 0); busy = `phone` shows «снимает iPhone…». `/snap caps|status|pair` print
+  the CLI's output.
+- **Continuity shot flow** (`shoot` → `runHelper`): `ensureApp` rebuilds SnapCam when
+  `helper/SnapCam.swift` ≠ `built.swift` (swiftc + ad-hoc codesign), `pkill -f
+  "<dir>/SnapCam.app/Contents/MacOS/SnapCam"` (by path: SnapCam for Mac has the same
+  executable name), then `open -W -n SnapCam.app --args <mode> <out.jpg>
+  <manual|delaySec> <status> [flash|""] [zoom]` (zoom 1–3 is one-shot, not saved).
   `open` is deliberate: SnapCam must be its own app for its own camera TCC grant and for
   `NSCameraUseContinuityCameraDeviceType` (without it the iPhone is invisible).
   Result = contents of the status file (the out path on success, else a Russian error).
@@ -38,9 +54,11 @@ Photos: `~/Pictures/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   < 90 KB so the inline SVG stays under the 131 072-char `Svg.source` limit) + size json,
   sets `viewing`, `$.ui.open({ id: 'snap-preview' })`; `ui.render Pane` draws it.
 - **Model tool** `mcp__snap-cam__take_photo` (`camera`, `delay_seconds` 0–60, default 3,
-  `flash`): same window, auto-shot after 1.5 s warm-up + delay; returns
-  `result: [{type:'text'}, {type:'image', data, mimeType}]`.
-- **`/snap iphone|desk|list`** — `list` prints every camera with focus/torch/flash support.
+  `flash`, `lens` ultraWide|wide|telephoto, `zoom` display 0.5–25): iPhone app path first,
+  else the window with auto-shot after 1.5 s warm-up + delay (zoom → crop, lens ignored);
+  returns `result: [{type:'text', <path + which path/lens/zoom/size>}, {type:'image'}]`.
+- **`/snap iphone|desk|list|caps|status|pair`** — `list` prints every Continuity camera with
+  focus/torch/flash support; `caps|status|pair` go to `snapcam-cli`.
 - **Helper window**: live preview, centred capture frame with dimmed outside; −/+ (keys
   +/−) zoom 1–3× (centred crop, saved per camera at once); iPhone only: flash
   выкл/вкл/авто (saved). Space/Enter/«Снять» shoot, Esc cancels, 10 min timeout.
@@ -91,6 +109,14 @@ On every change:
 
 
 ## Open / unverified
+
+- 0.8.0 iPhone app path: the CLI side was checked against the Simulator (capture with
+  zoom + preview → 2400×1800 JPEG; exit 69 with the phone app closed); the mod itself not
+  yet run in a session, and SnapCam for Mac is not yet installed in `~/Applications`.
+- Fallback cost: with the app installed but no phone, an iPhone shot waits ~3–8 s
+  (plus app launch) before Continuity opens.
+- Mod shots use the CLI defaults (HEIC, max size, auto rotation), not the Mac app's
+  inspector defaults; flash comes from `flash.txt`.
 
 - Image block in the `take_photo` result: shape accepted? does the model see the image?
   (0.5.4 changed to array; not re-tested.)

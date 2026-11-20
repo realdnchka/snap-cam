@@ -1,5 +1,5 @@
 // SnapCam: one shot from iPhone (Continuity) or Desk View, with a zoom frame.
-// Usage: SnapCam <iphone|desk|list> <out.jpg> <manual|delaySec> [statusFile] [off|on|auto]
+// Usage: SnapCam <iphone|desk|list> <out.jpg> <manual|delaySec> [statusFile] [off|on|auto|""] [zoom]
 import AppKit
 import AVFoundation
 import ImageIO
@@ -13,6 +13,8 @@ let stateDir = NSHomeDirectory() + "/Library/Application Support/snap-cam"
 // A number shoots by itself after that many seconds; "manual" waits for the user.
 let autoDelay: Double? = args.count > 3 ? Double(args[3]).map { min(max($0, 0), 60) } : nil
 let flashArg = args.count > 5 ? args[5] : ""
+// One-shot zoom for this run; not saved.
+let zoomArg: CGFloat? = args.count > 6 ? Double(args[6]).map { CGFloat(min(max($0, 1), 3)) } : nil
 let flashPath = "\(stateDir)/flash.txt"
 let flashModes = ["off", "on", "auto"]
 
@@ -118,7 +120,10 @@ final class Snapper: NSObject, NSWindowDelegate, AVCapturePhotoCaptureDelegate, 
     var preview: AVCaptureVideoPreviewLayer!
     var device: AVCaptureDevice?
     var kind = mode == "desk" ? "desk" : "iphone"
-    var zooms: [String: CGFloat] = ["desk": loadZoom("desk"), "iphone": loadZoom("iphone")]
+    var zooms: [String: CGFloat] = [
+        "desk": mode == "desk" ? zoomArg ?? loadZoom("desk") : loadZoom("desk"),
+        "iphone": mode == "desk" ? loadZoom("iphone") : zoomArg ?? loadZoom("iphone"),
+    ]
     var zoom: CGFloat { zooms[kind] ?? 1 }
     let shade = CAShapeLayer()
     let frameLine = CAShapeLayer()
