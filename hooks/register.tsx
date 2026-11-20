@@ -23,6 +23,8 @@ const PHONE_BUSY = 'phone'
 // snapcam-cli from SnapCam for Mac (repo snapcam-app); 69 = no app or no paired phone.
 const CLI_IN_APP = 'SnapCam.app/Contents/Helpers/snapcam-cli'
 const CLI_TIMEOUT_S = 25
+// A band press gets time to aim the phone; the phone screen shows the framing.
+const MANUAL_COUNTDOWN_S = 3
 const CLI_UNAVAILABLE = 69
 const SIDE = 2400
 
@@ -115,13 +117,6 @@ async function findCli($: EngineInterface, p: Paths): Promise<string | null> {
   return null
 }
 
-async function savedFlash($: EngineInterface, p: Paths): Promise<Flash | undefined> {
-  const file = `${p.dir}/flash.txt`
-  const saved = (await $.fs.exists(file)) ? (await $.fs.read(file)).trim() : ''
-
-  return FLASHES.find(f => f === saved)
-}
-
 function parseJson(text: string): PhoneJson {
   try {
     return JSON.parse(text.trim().split('\n').pop() ?? '') as PhoneJson
@@ -136,13 +131,13 @@ const times = (zoom: number) => `${Number(zoom.toFixed(1))}×`
 async function shootPhone($: EngineInterface, p: Paths, out: string, shot: Shot): Promise<Taken | string> {
   const cli = await findCli($, p)
   if (!cli) return 'SnapCam for Mac is not installed'
-  const delay = shot.delay === 'manual' ? 0 : Number(shot.delay)
+  const delay = shot.delay === 'manual' ? MANUAL_COUNTDOWN_S : Number(shot.delay)
   const argv = [cli, 'capture', '--json', '--delay', String(delay), '--timeout', String(CLI_TIMEOUT_S)]
   argv.push('--preview', out, '--preview-size', String(SIDE))
   if (shot.lens) argv.push('--lens', shot.lens)
   if (shot.zoom !== undefined) argv.push('--zoom', String(shot.zoom))
-  const flash = shot.flash ?? (await savedFlash($, p))
-  if (flash) argv.push('--flash', flash)
+  // Unset options use the Mac app's settings for the phone.
+  if (shot.flash) argv.push('--flash', shot.flash)
   await update($, busy, () => PHONE_BUSY)
   const run = await $.process.run(argv, { timeoutMs: (CLI_TIMEOUT_S + delay + 30) * 1000 })
   const json = parseJson(run.stdout)

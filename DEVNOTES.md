@@ -30,15 +30,18 @@ Photos: `~/Pictures/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   `$SNAPCAM_CLI`, else `~/Applications/SnapCam.app/Contents/Helpers/snapcam-cli`, else
   `/Applications/…`. Runs `snapcam-cli capture --json --delay <s> --timeout 25
   --preview <ClaudeSnaps/iphone-stamp.jpg> --preview-size 2400 [--lens] [--zoom]
-  [--flash]` (flash defaults to `flash.txt`). The CLI talks to SnapCam for Mac over
+  [--flash]`; unset options (flash, format, size, rotation) use the Mac app's inspector
+  settings for that phone, and `--lens`/`--zoom` replace the pair. The CLI talks to SnapCam for Mac over
   `~/Library/Application Support/SnapCam/control.sock`, launching the app if needed; the
   app owns pairing and the phone connection. `--preview` writes an upright JPEG (EXIF
   orientation applied, ImageIO). JSON: path, original, width/height (upright), format,
   lens, zoom, phone, ms, preview. Exit 0 → the preview is the snap; **69** (no app /
-  not paired / phone app closed / timed out) → Continuity helper with the reason in the
-  tool text; 1 or other → `deny`. Band `📷 iPhone` / Fast Capture use it too (shot at
-  once, delay 0); busy = `phone` shows «снимает iPhone…». `/snap caps|status|pair` print
-  the CLI's output.
+  not paired / phone app closed, decided before the shot is asked for) → Continuity
+  helper with the reason in the tool text; 1 (phone error, or a timeout or drop after the
+  shot was asked for: the phone may have shot) or other → `deny`. Band `📷 iPhone` uses
+  it with a 3 s countdown to aim (the phone shows a live preview), Fast Capture with
+  delay 0; busy = `phone` shows «снимает iPhone…». `/snap caps|status|pair` print the
+  CLI's output; `pair` also brings up the Mac app's pairing sheet.
 - **Continuity shot flow** (`shoot` → `runHelper`): `ensureApp` rebuilds SnapCam when
   `helper/SnapCam.swift` ≠ `built.swift` (swiftc + ad-hoc codesign), `pkill -f
   "<dir>/SnapCam.app/Contents/MacOS/SnapCam"` (by path: SnapCam for Mac has the same
@@ -115,8 +118,6 @@ On every change:
   yet run in a session, and SnapCam for Mac is not yet installed in `~/Applications`.
 - Fallback cost: with the app installed but no phone, an iPhone shot waits ~3–8 s
   (plus app launch) before Continuity opens.
-- Mod shots use the CLI defaults (HEIC, max size, auto rotation), not the Mac app's
-  inspector defaults; flash comes from `flash.txt`.
 
 - Image block in the `take_photo` result: shape accepted? does the model see the image?
   (0.5.4 changed to array; not re-tested.)
