@@ -52,6 +52,22 @@ phone has. Through Continuity Camera the same window opens and shoots by itself 
 1.5 s warm-up plus the delay; `zoom` becomes a 1–3× crop for that shot and `lens` is
 ignored. The image comes back in the tool result; the text says which path was used.
 
+With the SnapCam iPhone app the model also gets:
+
+- `peek` — one current viewfinder frame, not saved, to check the framing;
+- `frame` (`lens`, `zoom`) — move the live camera without shooting; no inputs reads it;
+- `camera_state` — lenses, zoom range, sizes, flash, the live framing and the inbox count;
+- `take_inbox` (`count`, default all, at most 5) — photos shot with the phone's own shutter,
+  oldest first, as images; taking them clears them from the Mac inbox.
+
+## Phone inbox
+
+Photos shot with the shutter in the SnapCam iPhone app go to the Mac's inbox. While a
+session is open the mod checks it every ~3 s (never starting the Mac app) and shows new
+ones as thumbnails above the prompt, beside your own shots. Sending a prompt attaches them
+and takes them from the inbox, so each is used once; ✕ drops one from the tray but leaves it
+in the inbox.
+
 The helper `helper/SnapCam.swift` is compiled on first use into
 `~/Library/Application Support/snap-cam/SnapCam.app` (needs Xcode Command Line Tools).
 It runs as its own app so macOS asks camera permission for "SnapCam" and lets it see

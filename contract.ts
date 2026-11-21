@@ -122,7 +122,7 @@ export const contract = {
         "status" : "planned"
       },
       "flash" : {
-        "detail" : "`capture --flash`",
+        "detail" : "`flash`, `capture --flash`",
         "status" : "available"
       },
       "formatSize" : {
@@ -130,16 +130,16 @@ export const contract = {
         "status" : "available"
       },
       "frameLens" : {
-        "detail" : "`capture --lens`",
+        "detail" : "`frame --lens`, `capture --lens`",
         "status" : "available"
       },
       "frameZoom" : {
-        "detail" : "`capture --zoom`",
+        "detail" : "`frame --zoom`, `capture --zoom`",
         "status" : "available"
       },
       "inbox" : {
-        "detail" : "`inbox`",
-        "status" : "planned"
+        "detail" : "`inbox`, `inbox --take --id`",
+        "status" : "available"
       },
       "liveVideo" : {
         "status" : "notApplicable"
@@ -149,15 +149,15 @@ export const contract = {
         "status" : "available"
       },
       "peek" : {
-        "detail" : "`peek`",
-        "status" : "planned"
+        "detail" : "`peek --preview`",
+        "status" : "available"
       },
       "shoot" : {
         "detail" : "`capture`",
         "status" : "available"
       },
       "state" : {
-        "detail" : "`caps`, `status`",
+        "detail" : "`state`, `caps`, `status`",
         "status" : "available"
       }
     },
@@ -166,7 +166,7 @@ export const contract = {
         "status" : "planned"
       },
       "flash" : {
-        "detail" : "inspector",
+        "detail" : "inspector, live",
         "status" : "available"
       },
       "formatSize" : {
@@ -174,15 +174,16 @@ export const contract = {
         "status" : "available"
       },
       "frameLens" : {
-        "detail" : "inspector",
+        "detail" : "inspector, live",
         "status" : "available"
       },
       "frameZoom" : {
-        "detail" : "inspector",
+        "detail" : "inspector, live",
         "status" : "available"
       },
       "inbox" : {
-        "status" : "planned"
+        "detail" : "Inbox section, Dock badge",
+        "status" : "available"
       },
       "liveVideo" : {
         "detail" : "stream",
@@ -192,7 +193,8 @@ export const contract = {
         "status" : "available"
       },
       "peek" : {
-        "status" : "planned"
+        "detail" : "inspector",
+        "status" : "available"
       },
       "shoot" : {
         "status" : "available"
@@ -214,18 +216,16 @@ export const contract = {
         "status" : "notApplicable"
       },
       "frameLens" : {
-        "detail" : "`take_photo lens`",
-        "next" : "`frame`",
+        "detail" : "`frame lens`, `take_photo lens`",
         "status" : "available"
       },
       "frameZoom" : {
-        "detail" : "`take_photo zoom`",
-        "next" : "`frame`",
+        "detail" : "`frame zoom`, `take_photo zoom`",
         "status" : "available"
       },
       "inbox" : {
-        "detail" : "`take_inbox`",
-        "status" : "planned"
+        "detail" : "`take_inbox count`",
+        "status" : "available"
       },
       "liveVideo" : {
         "status" : "notApplicable"
@@ -235,7 +235,7 @@ export const contract = {
       },
       "peek" : {
         "detail" : "`peek`",
-        "status" : "planned"
+        "status" : "available"
       },
       "shoot" : {
         "detail" : "`take_photo`",
@@ -243,7 +243,7 @@ export const contract = {
       },
       "state" : {
         "detail" : "`camera_state`",
-        "status" : "planned"
+        "status" : "available"
       }
     },
     "phoneScreen" : {
@@ -251,20 +251,22 @@ export const contract = {
         "status" : "planned"
       },
       "flash" : {
-        "status" : "planned"
+        "detail" : "flash menu",
+        "status" : "available"
       },
       "formatSize" : {
         "status" : "notApplicable"
       },
       "frameLens" : {
-        "status" : "planned"
+        "detail" : "lens buttons",
+        "status" : "available"
       },
       "frameZoom" : {
         "detail" : "pinch",
-        "status" : "planned"
+        "status" : "available"
       },
       "inbox" : {
-        "detail" : "sends",
+        "detail" : "sends; pending count",
         "status" : "notApplicable"
       },
       "liveVideo" : {
@@ -278,7 +280,8 @@ export const contract = {
         "status" : "notApplicable"
       },
       "shoot" : {
-        "status" : "planned"
+        "detail" : "shutter; to the Mac inbox",
+        "status" : "available"
       },
       "state" : {
         "status" : "available"

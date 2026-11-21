@@ -9,18 +9,19 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.7) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.8) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API) |
-| `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing}` |
+| `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}` |
 | `helper/SnapCam.swift` + `helper/Info.plist` | the Continuity/Desk View helper, built on first use |
 | `README.md` | user-facing summary |
-| `contract.ts` + `hooks/contract.test.ts` | generated camera contract (ADR 0003); `claude plugin test .` checks MCP cells against `take_photo` |
+| `contract.ts` + `hooks/contract.test.ts` | generated camera contract (ADR 0003); `claude plugin test .` checks every ✅ MCP cell names registered tools and inputs, plus the inbox tray and `take_inbox` against a fake CLI |
 
 Runtime state (outside the repo): `~/Library/Application Support/snap-cam/`
 — `SnapCam.app`, `built.swift` (copy of the source it was built from), `mc/` (module cache),
 `last.status` (helper's answer), `debug.log` (one line per helper failure, 0.8.3+),
 `{desk,iphone}-zoom.txt`, `flash.txt`, `last-mode.txt`,
-`last-shot.txt` (flash requested/sent), `thumbs/`, `previews/` (+ `.json` size sidecar).
+`last-shot.txt` (flash requested/sent), `thumbs/`, `previews/` (+ `.json` size sidecar),
+`inbox-staging/` (CLI inbox previews before the move), `peek.jpg` (last `peek`, overwritten).
 Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
 
 ## How it works
@@ -63,6 +64,30 @@ Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   suspended, session running, frames seen / frames with light, full NSError chain.
   The helper stops early on `AVCaptureSession.runtimeErrorNotification` and on the
   device's `wasDisconnectedNotification`.
+- **Phone inbox in the tray** (0.8.8, ADR 0003 step 3; snapcam-app `feat/inbox`): photos shot
+  with the iPhone app's own shutter land in the Mac app's inbox. In interactive sessions
+  `session.start` starts `$.clock.every(3000)` → `pollInbox`: when `findCli` finds the CLI,
+  `snapcam-cli inbox --json --no-launch` (never launches the app; exit 69 or bad JSON leaves
+  the tray as is; one poll at a time). Listed items minus `dismissed` become `phoneTray`
+  (`{id, original, name}`, name `phone-<first 8 of id>.jpg`, chat-safe: originals are
+  `SnapCam 2026-… at ….heic`); thumbs are made with sips from the original. `dismissed`
+  is pruned to ids still listed. The tray draws them beside band shots; 🔍 previews the
+  original; ✕ adds the id to `dismissed` (the photo stays in the inbox, other sessions
+  still see it). On prompt submit, tray phone photos are added to `dismissed` first (so a
+  poll in flight can't bring them back), then taken with `inbox --take --id … --preview-dir
+  inbox-staging --preview-size 2400 --json --no-launch` and moved to
+  `ClaudeSnaps/phone-….jpg` (upright, EXIF applied by the app); ids the app no longer has
+  (taken elsewhere) or a failed take (app quit; toast) fall back to a sips JPEG of the
+  original, so what the user saw is still attached, consumed once per session.
+  Mobile draws no band, but a prompt from it still takes tray photos.
+- **Camera tools for the model** (0.8.8), all via `snapcam-cli` (may launch the app):
+  `peek` (`peek --preview peek.jpg --json`, ~1280 px raw frame, not in the photo library;
+  text + image), `frame(lens?, zoom?)` (`frame [--lens] [--zoom]`, text; no inputs reads),
+  `camera_state` (`state`, text: caps, live framing, inbox count; exit 0 without a phone),
+  `take_inbox(count?)` (`inbox --take N`, default and cap 5, previews moved to
+  `ClaudeSnaps/phone-….jpg`, ids dropped from the tray; text with paths + one image block
+  each). Failures `deny` with the exit-code reason (69/75/64/1). Descriptions say: look
+  (peek), adjust (frame), then shoot, and shoot only when the user allows.
 - **Tray → prompt**: `prompt.submit` appends `📷 <name>` lines to the text and a
   `context` note telling the model to `Read` the paths; `ui.render UserMessage` hides those
   lines and draws thumbnails + 🔍 instead.
@@ -145,6 +170,11 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 
 ## Open / unverified
+
+- 0.8.8 inbox tray and camera tools: checked only with `claude plugin test` (fake CLI) and the
+  real CLI's `--no-launch` exit 69; not run in a session nor against a phone. Needs the
+  snapcam-app `feat/inbox` build installed (CLI with `--id`). `take_photo` text unchanged
+  apart from the shoot-only-when-allowed sentence.
 
 - 0.8.3: exit 75 path and the helper's black-frame check not yet run on the device;
   helper compiled with the mod's `swiftc` command only.

@@ -68,15 +68,15 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 
 | Command | Mac app | iPhone screen | Camera Control | Claude pane | CLI | MCP | App Intents |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| shoot | ✅ | 🔜 | 🔜 full press | 🔜 button | ✅ `capture` | ✅ `take_photo` | 🔜 «Снять фото» |
-| frame: lens | ✅ inspector | 🔜 | 🔜 system zoom slider switches lenses | 🔜 | ✅ `capture --lens` | ✅ `take_photo lens`; 🔜 `frame` | 🔜 |
-| frame: zoom | ✅ inspector | 🔜 pinch | 🔜 system slider | 🔜 | ✅ `capture --zoom` | ✅ `take_photo zoom`; 🔜 `frame` | 🔜 |
-| flash | ✅ inspector | 🔜 | 🔜 picker | 🔜 | ✅ `capture --flash` | ✅ `take_photo flash` | 🔜 |
+| shoot | ✅ | ✅ shutter; to the Mac inbox | 🔜 full press | 🔜 button | ✅ `capture` | ✅ `take_photo` | 🔜 «Снять фото» |
+| frame: lens | ✅ inspector, live | ✅ lens buttons | 🔜 system zoom slider switches lenses | 🔜 | ✅ `frame --lens`, `capture --lens` | ✅ `frame lens`, `take_photo lens` | 🔜 |
+| frame: zoom | ✅ inspector, live | ✅ pinch | 🔜 system slider | 🔜 | ✅ `frame --zoom`, `capture --zoom` | ✅ `frame zoom`, `take_photo zoom` | 🔜 |
+| flash | ✅ inspector, live | ✅ flash menu | 🔜 picker | 🔜 | ✅ `flash`, `capture --flash` | ✅ `take_photo flash` | 🔜 |
 | exposure | 🔜 | 🔜 | 🔜 system slider | 🔜 | 🔜 | 🔜 | — |
 | live video | 🔜 stream | ✅ viewfinder | — | 🔜 few fps | — | — | — |
-| peek | 🔜 | — | — | 🔜 | 🔜 `peek` | 🔜 `peek` | — |
-| state / caps | ✅ | ✅ | — | 🔜 | ✅ `caps`, `status` | 🔜 `camera_state` | — |
-| inbox | 🔜 | — (sends) | — (sends) | ✅ tray; 🔜 gallery | 🔜 `inbox` | 🔜 `take_inbox` | 🔜 |
+| peek | ✅ inspector | — | — | 🔜 | ✅ `peek --preview` | ✅ `peek` | — |
+| state / caps | ✅ | ✅ | — | 🔜 | ✅ `state`, `caps`, `status` | ✅ `camera_state` | — |
+| inbox | ✅ Inbox section, Dock badge | — (sends; pending count) | — (sends) | ✅ tray; 🔜 gallery | ✅ `inbox`, `inbox --take --id` | ✅ `take_inbox count` | 🔜 |
 | format / size | ✅ inspector | — | — | — | ✅ `capture --format --size` | — (Mac default) | — |
 | pair / forget | ✅ | ✅ | — | — | ✅ `pair` | — | — |
 <!-- contract:end -->
