@@ -622,6 +622,10 @@ test('every Claude pane cell that works names real pane controls', async ($, on)
   const ui = await openPane($)
   await clock.advance(3000)
   const keys = new Set((await ui.findAll({})).flatMap(found => (found.key ? [found.key] : [])))
+  // `live` and `status` are boxes: they count only with a frame and words in them.
+  const live = (await ui.findAll({ key: 'live' }))[0]
+  const drawsVideo = (await ui.find({ type: 'Svg' })) !== undefined && !!live
+  const status = (await ui.find({ key: 'status' }))?.text ?? ''
   await ui.press({ key: 'tab:gallery' })
   for (const found of await ui.findAll({})) if (found.key) keys.add(found.key)
   await ui.unmount()
@@ -633,7 +637,9 @@ test('every Claude pane cell that works names real pane controls', async ($, on)
     const words = [...(cell.detail ?? '').matchAll(/`([^`]+)`/g)].flatMap(m => (m[1] ?? '').split(/[\s,]+/).filter(Boolean))
     expect({ command, named: words.length > 0 }).toEqual({ command, named: true })
     for (const word of words) {
-      const found = word.endsWith('*') ? [...keys].some(k => k.startsWith(word.slice(0, -1))) : keys.has(word)
+      let found = word.endsWith('*') ? [...keys].some(k => k.startsWith(word.slice(0, -1))) : keys.has(word)
+      if (word === 'live') found &&= drawsVideo
+      if (word === 'status') found &&= status.includes('iPhone')
       expect({ command, word, found }).toEqual({ command, word, found: true })
     }
   }

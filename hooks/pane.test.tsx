@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { A, HOME, LIVE, ORIGINAL, RECENT, fakePaneMac as fakeMac, openPane } from './pane.fake.ts'
+import type { Fake } from './pane.fake.ts'
 
 test('the pane streams live frames while its camera tab shows, and stops when hidden', async ($, on) => {
   let shown = true
@@ -11,7 +12,10 @@ test('the pane streams live frames while its camera tab shows, and stops when hi
 
   expect(fake.calls.some(args => args[0] === 'state')).toBe(true)
   expect(fake.spawns).toHaveLength(1)
-  expect(fake.spawns[0]).toEqual(['live', '--preview-dir', LIVE, '--preview-size', '640', '--fps', '5', '--json'])
+  const [command, flag, dir, ...rest] = fake.spawns[0] ?? []
+  expect([command, flag]).toEqual(['live', '--preview-dir'])
+  expect(dir).toMatch(new RegExp(`^${LIVE}/[0-9a-f]{8}$`))
+  expect(rest).toEqual(['--preview-size', '640', '--fps', '5', '--json'])
   expect(await ui.find({ type: 'Svg' })).toBeDefined()
   expect((await ui.find({ key: 'status' }))?.text).toContain('iPhone')
 
@@ -32,7 +36,7 @@ test('the gallery tab pauses the video and lists recent photos and the inbox', a
 
   await ui.press({ key: 'tab:gallery' })
   expect(fake.stopped).toBe(1)
-  expect(fake.calls.find(args => args[0] === 'recent')).toEqual(['recent', '8', '--json'])
+  expect(fake.calls.find(args => args[0] === 'recent')).toEqual(['recent', '8', '--json', '--no-launch'])
   expect(await ui.find({ key: `recent:${RECENT}` })).toBeDefined()
   expect(await ui.find({ key: `inbox:${A}` })).toBeDefined()
   await clock.advance(3000)
@@ -151,9 +155,20 @@ test('an old snapcam-cli without live shows why and is retried only after a paus
   await ui.unmount()
 })
 
-test('an error after frames shows over the frozen frame, and the next frame clears it', async ($, on) => {
+test('a frame after an error clears it, on the terminal too', async ($, on) => {
   const clock = mock.clock(on)
-  fakeMac(on, () => true, { tail: { error: 'Timed out. Is the camera still on?', exit: '69' } })
+  const frame = { seq: 3, preview: `${LIVE}/x/live.jpg`, png: `${LIVE}/x/live.png`, width: 640, height: 480, lens: 'wide', zoom: 1, phone: 'iPhone' }
+  fakeMac(on, () => true, { surfaces: () => ['terminal'], tail: [{ error: 'Timed out', exit: '69' }, frame] })
+  const ui = await openPane($, 'terminal')
+  await clock.advance(1000)
+
+  expect((await ui.find({ key: 'live' }))?.text ?? '').not.toContain('Timed out')
+  await ui.unmount()
+})
+
+test('an error after frames shows over the frozen frame', async ($, on) => {
+  const clock = mock.clock(on)
+  fakeMac(on, () => true, { tail: [{ error: 'Timed out. Is the camera still on?', exit: '69' }] })
   const ui = await openPane($)
   await clock.advance(1000)
 
@@ -196,10 +211,65 @@ test('the terminal Image stays within 255 columns', async ($, on) => {
   fakeMac(on, () => true, { surfaces: () => ['terminal'] })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'snap', args: 'pane' } as never)
-  const wide = { plugin: 'snap-cam', component: 'Pane', requestId: 'snap-live', props: { title: 'SnapCam', isFocused: false, bodyColumns: 400, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } }
+  const wide = { plugin: 'snap-cam', component: 'Pane', requestId: 'snap-live', props: { title: 'SnapCam', isFocused: false, bodyColumns: 400, placement: 'dock', scroll: { offset: 0, bodyRows: 400 }, view: {} } }
   const ui = await $.ui.mount({ ...wide, surface: 'terminal' } as never)
   await clock.advance(1000)
 
   expect((await ui.find({ key: 'video' }))?.props.columns).toBe(255)
   await ui.unmount()
+})
+
+test('the terminal video leaves room for the controls below it', async ($, on) => {
+  const clock = mock.clock(on)
+  fakeMac(on, () => true, { surfaces: () => ['terminal'] })
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'snap', args: 'pane' } as never)
+  const dock = { plugin: 'snap-cam', component: 'Pane', requestId: 'snap-live', props: { title: 'SnapCam', isFocused: false, bodyColumns: 200, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} } }
+  const ui = await $.ui.mount({ ...dock, surface: 'terminal' } as never)
+  await clock.advance(1000)
+
+  const video = await ui.find({ key: 'video' })
+  expect(video?.props.rows).toBe(30)
+  expect(video?.props.columns).toBe(80)
+  await ui.unmount()
+})
+
+test('a terminal that refuses file pictures gets the frame as bytes', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { surfaces: () => ['terminal'], bytesOnly: true })
+  const ui = await openPane($, 'terminal')
+  await clock.advance(1000)
+
+  const sources = fake.blits.map(blit => Object.keys((blit as { source: object }).source)[0])
+  expect(sources[0]).toBe('file')
+  expect(sources.at(-1)).toBe('png')
+  await ui.unmount()
+})
+
+test('a failed state read shows why, and the next good one clears it without launching the app', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { stateFails: 1 })
+  const ui = await openPane($)
+  await clock.advance(1000)
+  expect((await ui.drawn()) && (await ui.find({ type: 'Text', text: /not reachable/ }))).toBeDefined()
+
+  await clock.advance(11_000)
+  expect(await ui.find({ type: 'Text', text: /not reachable/ })).toBeUndefined()
+  const states = fake.calls.filter(args => args[0] === 'state')
+  expect(states[0]).not.toContain('--no-launch')
+  expect(states.at(-1)).toContain('--no-launch')
+  await ui.unmount()
+})
+
+test('the band button opens the pane and starts the stream', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake: Fake = fakeMac(on, () => fake.opened)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const band = await $.ui.mount({ plugin: 'snap-cam', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false } } as never)
+  await band.press({ key: 'snap-live' })
+  await band.unmount()
+  await clock.advance(1000)
+  expect(fake.opened).toBe(true)
+  expect(fake.spawns).toHaveLength(1)
+
 })

@@ -93,4 +93,5 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
   stream and photo push with acks.
 - A conformance test keeps every surface honest: SnapCamKit `ContractTests` (every cell
   declared, docs current, CLI cells name real syntax) and `hooks/contract.test.ts` (MCP
-  cells name registered tools and `take_photo` inputs).
+  cells name registered tools and `take_photo` inputs; Claude pane cells name keys the pane
+  draws, `x:*` a key prefix).

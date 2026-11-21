@@ -24,6 +24,8 @@ const LIVE_SIDE = 640
 // Svg.source limit; a bigger frame is skipped.
 const SVG_MAX = 131_072
 const TICK_MS = 1000
+// Tabs, status, shoot, lens and light rows under the terminal video.
+const CONTROL_ROWS = 10
 const GALLERY_COUNT = 8
 const GALLERY_EVERY_MS = 15_000
 const ZOOM_STEP = 1.4
@@ -58,13 +60,32 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), h
 export const galleryName = (original: string) =>
   `recent-${baseName(original).replace(/\.[^.]*$/, '').replace(/[^\w.-]+/g, '-')}.jpg`
 
-type Run = { stream: AsyncGenerator<unknown, unknown>; mode: SnapMode; stopped: boolean; everyFrame: boolean; blit: boolean }
+type Run = {
+  stream: AsyncGenerator<unknown, unknown>
+  mode: SnapMode
+  stopped: boolean
+  everyFrame: boolean
+  blit: boolean
+  // iTerm2 and tmux read only bytes: switched on after a refused file blit.
+  bytes: boolean
+  denials: number
+}
+// Blits refused in a row before the pane stops sending them.
+const MAX_DENIALS = 10
+// Per module load, so two sessions don't share frame files.
+const LIVE_ID = crypto.randomUUID().slice(0, 8)
+// Last frame that fit Svg's limit, shown while a bigger one is skipped.
+let lastSvg: string | null = null
+// Who wrote the note, so their next success clears it.
+let noteFrom = ''
 let run: Run | null = null
 // A child that ended by itself is restarted no sooner than this.
 let retryAt = 0
 const RETRY_MS = 5000
 const INFO_EVERY_MS = 10_000
 let ticking = false
+// The terminal refused a file source once: draw from bytes.
+let terminalBytes = false
 // A press or close came while a tick ran: tick once more after it.
 let again = false
 // Bumped by every stop, so a start still in its awaits gives up.
@@ -72,6 +93,9 @@ let startGen = 0
 // When `state` was last read for the controls; null reads it now.
 let infoAt: number | null = null
 let refreshing = false
+let infoBusy = false
+// Set by openLive: the first `state` after an open may launch the app.
+let launchNext = false
 // When the gallery was last read; null reads it at the next chance.
 let galleryAt: number | null = null
 
@@ -88,16 +112,16 @@ async function startLive($: EngineInterface, mode: SnapMode, surfaces: readonly 
   const p = await paths($)
   const cli = await findCli($, p)
   if (!cli) {
-    await update($, liveFrame, f => ({ ...f, error: 'SnapCam для Mac не установлен' }))
+    await ended($, 'SnapCam для Mac не установлен')
     return
   }
   if (gen !== startGen) return
   const blit = surfaces.includes('terminal')
   const source = mode === 'iphone' ? [] : ['--source', SOURCES[mode].source]
-  const argv = [cli, 'live', '--preview-dir', `${p.dir}/live`, '--preview-size', String(LIVE_SIDE)]
+  const argv = [cli, 'live', '--preview-dir', `${p.dir}/live/${LIVE_ID}`, '--preview-size', String(LIVE_SIDE)]
   argv.push('--fps', String(FPS), '--json', ...(blit ? ['--png'] : []), ...source)
   const stream = $.process.spawn({ argv })
-  const me: Run = { stream, mode, stopped: false, everyFrame: surfaces.some(s => s !== 'terminal'), blit }
+  const me: Run = { stream, mode, stopped: false, everyFrame: surfaces.some(s => s !== 'terminal'), blit, bytes: false, denials: 0 }
   run = me
   await update($, liveFrame, () => ({ seq: 0 }))
   void (async () => {
@@ -148,15 +172,37 @@ async function onLine($: EngineInterface, me: Run, line: Partial<LiveLine>): Pro
     seq: line.seq, preview: line.preview, png: line.png, width: line.width, height: line.height,
     lens: line.lens, zoom: line.zoom, phone: line.phone,
   }
-  if (me.blit && line.png) {
-    const source = { file: line.png, format: 'png' as const, generation: line.seq }
-    void $.ui.blit({ requestId: LIVE_PANE, key: 'video', source }).catch(() => {})
-  }
-  // The terminal swaps the picture by blit; redraw only when the words change.
+  if (me.blit && line.png) void blitFrame($, me, line.png, line.seq)
+  // The terminal swaps the picture by blit; redraw only when the words or the shape change.
   await update($, liveFrame, f => {
-    const same = f.lens === next.lens && f.zoom === next.zoom && f.phone === next.phone && !f.error && f.seq > 0
+    const same =
+      f.lens === next.lens && f.zoom === next.zoom && f.phone === next.phone && f.width === next.width &&
+      f.height === next.height && !f.error && f.seq > 0
     return !me.everyFrame && same ? f : next
   })
+}
+
+// A file source first; a refusal switches to bytes, repeated refusals stop the blits.
+async function blitFrame($: EngineInterface, me: Run, png: string, seq: number): Promise<void> {
+  try {
+    const source = me.bytes
+      ? { png: (await $.fs.read(png, { as: 'bytes' })).base64 }
+      : { file: png, format: 'png' as const, generation: seq }
+    const done = await $.ui.blit({ requestId: LIVE_PANE, key: 'video', source })
+    if (!('deny' in done) || !done.deny) {
+      me.denials = 0
+      return
+    }
+    if (!me.bytes) {
+      me.bytes = true
+      terminalBytes = true
+      return
+    }
+    me.denials += 1
+    if (me.denials >= MAX_DENIALS) me.blit = false
+  } catch {
+    // A frame lost; the next one tries again.
+  }
 }
 
 // Streams only while the pane shows its camera tab.
@@ -173,10 +219,12 @@ async function tick($: EngineInterface): Promise<void> {
     const mode = await read($, paneCamera)
     const surfaces = await $.session.surfaces()
     // A surface came or went: restart with its flags.
-    const changed = run && (run.blit !== surfaces.includes('terminal') || run.everyFrame !== surfaces.some(s => s !== 'terminal'))
+    // Only --png needs a new child; the redraw policy changes in place.
+    if (run) run.everyFrame = surfaces.some(s => s !== 'terminal')
+    const changed = run && run.blit !== surfaces.includes('terminal') && run.denials < MAX_DENIALS
     if (run && (!shown || tab !== 'camera' || run.mode !== mode || changed)) stopLive()
     const now = await $.clock.now()
-    if (shown && tab === 'camera' && (infoAt === null || now - infoAt > INFO_EVERY_MS)) {
+    if (shown && tab === 'camera' && !infoBusy && (infoAt === null || now - infoAt > INFO_EVERY_MS)) {
       infoAt = now
       void refreshInfo($).catch(() => {})
     }
@@ -216,16 +264,32 @@ function toInfo(json: Partial<StateJson>): CameraInfo {
   }
 }
 
+async function setNote($: EngineInterface, from: string, text: string): Promise<void> {
+  if (!text && noteFrom !== from) return
+  noteFrom = text ? from : ''
+  await update($, paneNote, () => text)
+}
+
 async function refreshInfo($: EngineInterface): Promise<void> {
-  const p = await paths($)
-  const cli = await findCli($, p)
-  if (!cli) return
-  const res = await runCli($, cli, ['state', '--json'], 30)
-  if (res.exitCode !== 0) {
-    await update($, paneNote, () => cliFailure(res))
-    return
+  if (infoBusy) return
+  infoBusy = true
+  try {
+    const p = await paths($)
+    const cli = await findCli($, p)
+    if (!cli) return
+    // Polls never start the app; only the first read after an open may.
+    const launch = launchNext
+    launchNext = false
+    const res = await runCli($, cli, ['state', '--json', ...(launch ? [] : ['--no-launch'])], 30)
+    if (res.exitCode !== 0) {
+      await setNote($, 'state', cliFailure(res))
+      return
+    }
+    await update($, cameraInfo, () => toInfo(parseJson<StateJson>(res.stdout)))
+    await setNote($, 'state', '')
+  } finally {
+    infoBusy = false
   }
-  await update($, cameraInfo, () => toInfo(parseJson<StateJson>(res.stdout)))
 }
 
 // The newest photos of the save folder; thumbs made once per original.
@@ -244,11 +308,12 @@ async function readGallery($: EngineInterface): Promise<void> {
   const p = await paths($)
   const cli = await findCli($, p)
   if (!cli) return
-  const res = await runCli($, cli, ['recent', String(GALLERY_COUNT), '--json'], 30)
+  const res = await runCli($, cli, ['recent', String(GALLERY_COUNT), '--json', '--no-launch'], 30)
   if (res.exitCode !== 0) {
-    await update($, paneNote, () => cliFailure(res))
+    await setNote($, 'recent', cliFailure(res))
     return
   }
+  await setNote($, 'recent', '')
   const items: RecentItem[] = (parseJson<RecentJson>(res.stdout).items ?? []).map(item => ({
     original: item.original,
     name: galleryName(item.original),
@@ -268,11 +333,11 @@ async function control($: EngineInterface, args: string[]): Promise<void> {
   if (!cli) return
   const res = await runCli($, cli, [...args, '--json'], 30)
   if (res.exitCode !== 0) {
-    await update($, paneNote, () => cliFailure(res))
+    await setNote($, 'control', cliFailure(res))
     return
   }
   const framing = parseJson<{ framing: Framing }>(res.stdout).framing
-  await update($, paneNote, () => '')
+  await setNote($, 'control', '')
   if (framing) await update($, cameraInfo, info => (info ? { ...info, framing } : info))
 }
 
@@ -286,7 +351,7 @@ async function toggleRecent($: EngineInterface, item: RecentItem): Promise<void>
   await $.process.run(['mkdir', '-p', p.snaps])
   await $.process.run(['sips', '-s', 'format', 'jpeg', '-Z', String(SIDE), item.original, '--out', dest])
   if (!(await $.fs.exists(dest))) {
-    await update($, paneNote, () => `Не удалось прочитать ${baseName(item.original)}`)
+    await setNote($, 'control', `Не удалось прочитать ${baseName(item.original)}`)
     return
   }
   await update($, pending, list => (list.includes(dest) ? list : [...list, dest]))
@@ -307,6 +372,7 @@ async function toggleInbox($: EngineInterface, item: InboxItem): Promise<void> {
 export async function openLive($: EngineInterface): Promise<boolean> {
   const opened = await $.ui.open({ id: LIVE_PANE, title: TITLE })
   infoAt = null
+  launchNext = true
   void tick($)
 
   return opened.isPlaced
@@ -320,7 +386,9 @@ async function videoSvg($: EngineInterface, frame: LiveFrame): Promise<string | 
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
     `<image width="${w}" height="${h}" href="data:image/jpeg;base64,${base64}"/></svg>`
 
-  return svg.length <= SVG_MAX ? svg : null
+  if (svg.length <= SVG_MAX) lastSvg = svg
+
+  return lastSvg
 }
 
 function framingLine(frame: LiveFrame, info: CameraInfo | null, mode: SnapMode): string {
@@ -347,6 +415,9 @@ export function registerLive(on: On): void {
     if (e.id === LIVE_PANE) {
       stopLive()
       infoAt = null
+      lastSvg = null
+      const p = await paths($)
+      void $.process.run(['rm', '-rf', `${p.dir}/live/${LIVE_ID}`]).catch(() => {})
     }
 
     return next(e)
@@ -429,11 +500,23 @@ export function registerLive(on: On): void {
     let video = null
     if (e.surface === 'terminal') {
       const { Image } = $.ui.resolve(e)
-      const columns = clamp(e.props.bodyColumns, 8, 255)
-      const rows = clamp(Math.round((columns * (frame.height ?? 9)) / (frame.width ?? 16) / 2), 4, 255)
-      video = frame.png ? (
-        <Image key="video" source={{ file: frame.png, format: 'png', generation: frame.seq }} columns={columns} rows={rows} alt="Живое видео SnapCam" />
-      ) : null
+      // Cells are about twice as tall as wide; leave rows for the controls below.
+      const aspect = (frame.height ?? 9) / (frame.width ?? 16)
+      const maxRows = clamp(e.props.scroll.bodyRows - CONTROL_ROWS, 4, 255)
+      let columns = clamp(e.props.bodyColumns, 8, 255)
+      let rows = Math.round((columns * aspect) / 2)
+      if (rows > maxRows) {
+        rows = maxRows
+        columns = clamp(Math.round((rows * 2) / aspect), 8, 255)
+      }
+      rows = clamp(rows, 4, 255)
+      const source =
+        terminalBytes && frame.png && (await $.fs.exists(frame.png))
+          ? { png: (await $.fs.read(frame.png, { as: 'bytes' })).base64 }
+          : frame.png
+            ? { file: frame.png, format: 'png' as const, generation: frame.seq }
+            : null
+      video = source ? <Image key="video" source={source} columns={columns} rows={rows} alt="Живое видео SnapCam" /> : null
     } else {
       const { Svg } = $.ui.resolve(e)
       const svg = await videoSvg($, frame)
@@ -492,7 +575,7 @@ export function registerLive(on: On): void {
     const nextSource = sources[(sources.findIndex(s => s.mode === mode) + 1) % sources.length]?.mode ?? 'iphone'
     const shoot = async () => {
       const said = await snapToTray($, mode, '0')
-      await update($, paneNote, () => (said.startsWith('SnapCam') ? said : ''))
+      await setNote($, 'shoot', said.startsWith('SnapCam') ? said : '')
       galleryAt = null
     }
 

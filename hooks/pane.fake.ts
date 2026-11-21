@@ -32,14 +32,18 @@ const STATE = {
   ],
 }
 
-export type Fake = { calls: string[][]; runs: string[][]; spawns: string[][]; stopped: number; blits: unknown[] }
+export type Fake = { calls: string[][]; runs: string[][]; spawns: string[][]; stopped: number; blits: unknown[]; opened: boolean }
 
 export type FakeOptions = {
   surfaces?: () => RenderSurface[]
   // A snapcam-cli without `live`, exiting 64 at once.
   oldCli?: boolean
-  // A line the stream sends after its frames.
-  tail?: object
+  // Lines the stream sends after its frames.
+  tail?: object[]
+  // `state` fails this many times first.
+  stateFails?: number
+  // The terminal reads only byte sources, as iTerm2 does.
+  bytesOnly?: boolean
   // Lens and zoom the stream reports, as if moved on the phone.
   live?: { lens: string; zoom: number }
 }
@@ -48,9 +52,10 @@ const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isSt
 
 // A Mac app for the pane: state, recent, inbox, framing commands, and `live` frames.
 export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions = {}): Fake {
-  const { oldCli = false, tail, live = { lens: 'wide', zoom: 1 } } = options
+  const { oldCli = false, tail = [], live = { lens: 'wide', zoom: 1 }, bytesOnly = false } = options
+  let stateFails = options.stateFails ?? 0
   const surfaces = options.surfaces ?? (() => ['desktop'])
-  const fake: Fake = { calls: [], runs: [], spawns: [], stopped: 0, blits: [] }
+  const fake: Fake = { calls: [], runs: [], spawns: [], stopped: 0, blits: [], opened: false }
   mock.env(on, { HOME, SNAPCAM_CLI: CLI })
   on('fs.exists', (_, e) => ({ value: e.path === CLI || e.path.startsWith(LIVE) || e.path.includes('/ClaudeSnaps/') || e.path.includes('/thumbs/') }))
   on('fs.read', () => ({ value: { base64: 'AA==' } }))
@@ -62,7 +67,12 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
     fake.calls.push(argv.slice(1))
     const framing = (patch: object) => ok(JSON.stringify({ phone: 'iPhone', framing: { ...STATE.framing, ...patch } }))
     switch (argv[1]) {
-      case 'state': return ok(JSON.stringify(STATE))
+      case 'state':
+        if (stateFails > 0) {
+          stateFails -= 1
+          return { value: { exitCode: 69, stdout: '', stderr: 'snapcam-cli: SnapCam isn\'t running.', isStdoutTruncated: false, isStderrTruncated: false } }
+        }
+        return ok(JSON.stringify(STATE))
       case 'recent': return ok(JSON.stringify({ folder: '/Pictures/SnapCam/Default', items: [{ original: ORIGINAL }] }))
       case 'inbox': return ok(JSON.stringify({ items: [{ id: A, original: '/Pictures/SnapCam/Default/a.heic' }], remaining: 1 }))
       case 'frame': return framing(argv.includes('--lens') ? { lens: argv[argv.indexOf('--lens') + 1] } : { zoom: Number(argv[argv.indexOf('--zoom') + 1]) })
@@ -87,7 +97,7 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
       for (let seq = 1; seq <= 2; seq += 1) {
         yield { stream: 'stdout' as const, text: JSON.stringify({ seq, preview: `${LIVE}/live.jpg`, png, width: 640, height: 480, lens: live.lens, zoom: live.zoom, phone: 'iPhone', ms: 9 }) + '\n' }
       }
-      if (tail) yield { stream: 'stdout' as const, text: JSON.stringify(tail) + '\n' }
+      for (const line of tail) yield { stream: 'stdout' as const, text: JSON.stringify(line) + '\n' }
       // Stays open like the real CLI until the mod ends the loop.
       await new Promise<void>(done => next.signal.addEventListener('abort', () => done()))
     } finally {
@@ -96,11 +106,19 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
 
     return { value: { code: 0, signal: null } }
   })
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', () => {
+    fake.opened = true
+    return { value: { isPlaced: true } }
+  })
+  on('ui.close', () => {
+    fake.opened = false
+    return undefined as never
+  })
   on('ui.panes', () => ({ value: shown() ? [{ id: 'snap-live', title: 'SnapCam', isShown: true, isFocused: false, isPlaced: true }] : [] }))
   on('ui.blit', (_, e) => {
     fake.blits.push(e)
-    return { value: {} }
+    const isFile = 'file' in (e as { source: object }).source
+    return { value: bytesOnly && isFile ? { deny: 'a file this terminal cannot read' } : {} }
   })
   on('session.surfaces', () => ({ value: surfaces() }))
   on('command.register', () => ({ value: { command: 'snap' } }))
