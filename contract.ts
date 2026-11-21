@@ -266,8 +266,8 @@ export const contract = {
         "status" : "available"
       },
       "inbox" : {
-        "detail" : "sends; pending count",
-        "status" : "notApplicable"
+        "detail" : "mirror strip; remove",
+        "status" : "available"
       },
       "liveVideo" : {
         "detail" : "viewfinder",
