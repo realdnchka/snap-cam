@@ -69,7 +69,7 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 | Command | Mac app | iPhone screen | Camera Control | Claude pane | CLI | MCP | App Intents |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | shoot | ✅ | 🔜 | 🔜 full press | 🔜 button | ✅ `capture` | ✅ `take_photo` | 🔜 «Снять фото» |
-| frame: lens | ✅ inspector | 🔜 | — (via zoom) | 🔜 | ✅ `capture --lens` | ✅ `take_photo lens`; 🔜 `frame` | 🔜 |
+| frame: lens | ✅ inspector | 🔜 | 🔜 system zoom slider switches lenses | 🔜 | ✅ `capture --lens` | ✅ `take_photo lens`; 🔜 `frame` | 🔜 |
 | frame: zoom | ✅ inspector | 🔜 pinch | 🔜 system slider | 🔜 | ✅ `capture --zoom` | ✅ `take_photo zoom`; 🔜 `frame` | 🔜 |
 | flash | ✅ inspector | 🔜 | 🔜 picker | 🔜 | ✅ `capture --flash` | ✅ `take_photo flash` | 🔜 |
 | exposure | 🔜 | 🔜 | 🔜 system slider | 🔜 | 🔜 | 🔜 | — |

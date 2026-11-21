@@ -50,8 +50,8 @@ export const contract = {
         "status" : "notApplicable"
       },
       "frameLens" : {
-        "detail" : "via zoom",
-        "status" : "notApplicable"
+        "detail" : "system zoom slider switches lenses",
+        "status" : "planned"
       },
       "frameZoom" : {
         "detail" : "system slider",
