@@ -164,6 +164,28 @@ test('a failed take keeps phone shots in the tray and attaches none of them', as
   expect(sent.at(-1)).toContain('📷 phone-bbbbbbbb.jpg')
 })
 
+test('with no drawing surface the tray stays put and the model hears it waits', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const clock = mock.clock(on)
+  const calls = fakeMac(on)
+  let context: readonly string[] = []
+  on('prompt.submit', (_, e) => {
+    context = e.context ?? []
+    return { text: e.text, context: e.context }
+  })
+  on('command.register', () => ({ value: { command: 'snap' } }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as Spec).name}` } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.surfaces', () => ({ value: [] }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(3000)
+
+  await $.prompt.submit({ text: 'look', wait: false, origin: { kind: 'unclassified' } })
+
+  expect(calls.some(args => args.includes('--take'))).toBe(false)
+  expect(context.join('\n')).toContain('2 camera photo(s) wait in the SnapCam tray')
+})
+
 test('take_inbox is gone; recent_photos reads history and leaves the tray alone', async ($, on) => {
   mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
   const clock = mock.clock(on)

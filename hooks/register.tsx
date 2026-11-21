@@ -650,7 +650,8 @@ export const register: Register = on => {
         "Turn the user's iPhone light (the steady torch, SnapCam app) on at a brightness, or off with 0. " +
         'level is absolute (0..1 of the maximum), not a step from the current one; the phone clamps it. ' +
         'Same as flash on; photos taken while it is lit fire no extra flash. It stays lit until turned off, so ' +
-        'turn it off when done. The phone refuses while it is too hot (camera_state says "light off (hot)"). ' +
+        'turn it off when done. The phone refuses while it is too hot (camera_state says "light off (hot)") ' +
+        'or while the iPhone app is in the background ("light off (iPhone app in background)"). ' +
         'Shoots nothing; peek to check.',
       inputSchema: {
         type: 'object',
@@ -778,11 +779,14 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     if (e.command || e.isMeta || e.origin?.kind === 'plugin') return next(e)
     resetBackoff()
-    // Take the tray only if some surface shows it.
+    // Take the tray only if some surface shows it; headless runs never consume it.
     const shown = (await $.session.surfaces()).some(surface => surface !== 'mobile')
     let tray: string[] = []
     let fromPhone: InboxItem[] = []
-    if (shown) {
+    let unseen = 0
+    if (!shown) {
+      unseen = (await read($, pending)).length + (await read($, phoneTray)).length
+    } else {
       await update($, pending, list => {
         tray = [...list]
         return list.length > 0 ? [] : list
@@ -792,7 +796,16 @@ export const register: Register = on => {
       for (const item of fromPhone) taking.add(item.id)
     }
     const typed = e.text.match(SNAP_PATH) ?? []
-    if (tray.length + fromPhone.length + typed.length === 0) return next(e)
+    const held =
+      unseen > 0
+        ? [
+            `${unseen} camera photo(s) wait in the SnapCam tray, not attached: nothing here shows the tray. ` +
+              'recent_photos reads them from the history without taking them.',
+          ]
+        : []
+    if (tray.length + fromPhone.length + typed.length === 0) {
+      return held.length > 0 ? next({ ...e, context: [...(e.context ?? []), ...held] }) : next(e)
+    }
     let phoneShots: string[] = []
     try {
       phoneShots = fromPhone.length > 0 ? await takeTray($, fromPhone) : []
@@ -810,7 +823,7 @@ export const register: Register = on => {
     return next({
       ...e,
       text: lines ? `${e.text}\n\n${lines}` : e.text,
-      context: [...(e.context ?? []), note],
+      context: [...(e.context ?? []), note, ...held],
     })
   }).catch(($, e, next) => next(e))
 

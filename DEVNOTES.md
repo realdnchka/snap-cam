@@ -85,6 +85,9 @@ Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   `$.session.surfaces()` holds a surface that draws it (anything but `mobile`). The
   submit doesn't say which surface sent it, so with desktop and mobile both attached a
   mobile prompt still takes the tray the desktop shows; mobile-only leaves it untouched.
+  No surface at all (an interactive SDK host that draws nothing; a `-p` run never polls)
+  also leaves the tray (0.8.12): nobody saw it, and taking would empty the Mac inbox. Such a
+  prompt gets a context line with the waiting count so the model can use `recent_photos`.
   Band shots are taken out of `pending` inside one `update`, so two submits can't share them.
 - **Camera tools for the model** (0.8.9), all via `snapcam-cli` (may launch the app):
   `peek` (`peek --preview peek.jpg --json`, ~1280 px raw frame, not in the photo library;
@@ -93,7 +96,7 @@ Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   `light(level)` (0.8.10; `light LEVEL|off`, absolute level clamped 0..1, 0 = off; text),
   `frame` ignores `exposure: null` (0.8.11; it used to become 0 EV),
   `camera_state` (`state`, text: caps incl. light/exposure ranges, live framing incl.
-  light/exposure/`light off (hot)`, inbox count; exit 0 without a phone),
+  light/exposure/`light off (hot)`/`light off (iPhone app in background)`, inbox count; exit 0 without a phone),
   `recent_photos(count?)` (0.8.9, replaces `take_inbox`; `recent N --preview-dir
   recent-staging/<stamp>-<n> --preview-size 2400 --json`, default 1, cap 5): the newest photos of the Mac
   app's save folder, any origin (phone shutter, Mac, CLI), previews moved to
