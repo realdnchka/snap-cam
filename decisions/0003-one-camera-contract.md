@@ -1,6 +1,6 @@
 # 0003 — The Mac is the hub; one camera contract for every surface
 
-Status: Proposed (2026-11-21).
+Status: Accepted (2026-11-21).
 
 ## Context
 
