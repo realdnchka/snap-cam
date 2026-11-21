@@ -58,7 +58,7 @@ With the SnapCam iPhone app the model also gets:
 - `peek` — one current viewfinder frame, not saved, to check the framing;
 - `frame` (`lens`, `zoom`, `exposure` in EV) — move the live camera without shooting; no
   inputs reads it;
-- `light` (`level` 0..1, 0 = off) — the phone's steady light; same as `flash` `on`, which
+- `light` (`level` 0..1 of the maximum, absolute, 0 = off; the phone clamps) — the phone's steady light; same as `flash` `on`, which
   stays lit until turned off; refused while the phone is hot;
 - `camera_state` — lenses, zoom range, sizes, flash, light and exposure ranges, the live
   framing (with light and exposure) and how many phone shots wait in the tray;
@@ -70,10 +70,13 @@ With the SnapCam iPhone app the model also gets:
 
 Photos shot with the shutter in the SnapCam iPhone app go to the Mac app's history and to
 its inbox, a hidden queue for this tray (the Mac app shows no inbox). While a
-session is open the mod checks it every ~3 s (never starting the Mac app) and shows new
+session is open the mod checks it every ~3 s (never starting the Mac app; while the app is
+not running, ever less often, up to every 30 s) and shows new
 ones as thumbnails above the prompt, beside your own shots. Sending a prompt attaches them
 and takes them from the inbox, so each is used once; if the take fails they stay in the tray
-for the next prompt. ✕ drops one from the tray but leaves it in the inbox.
+for the next prompt. ✕ drops one from the tray but leaves it in the inbox. A prompt takes
+the tray only when the session is also open on a surface that shows it (terminal, desktop,
+IDE); in a session seen only from Claude mobile the tray waits.
 
 The helper `helper/SnapCam.swift` is compiled on first use into
 `~/Library/Application Support/snap-cam/SnapCam.app` (needs Xcode Command Line Tools).

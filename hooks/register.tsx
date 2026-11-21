@@ -23,6 +23,8 @@ const LENSES: Lens[] = ['ultraWide', 'wide', 'telephoto']
 const TOOL = 'mcp__snap-cam__take_photo'
 const TOOL_PREFIX = 'mcp__snap-cam__'
 const POLL_MS = 3000
+// Backoff cap while the Mac app is down: 10 ticks = 30 s.
+const POLL_MAX_TICKS = 10
 const RECENT_MAX = 5
 const CLI_USAGE = 64
 const PHONE_BUSY = 'phone'
@@ -71,7 +73,7 @@ type RecentJson = {
   folder?: string
   items?: {
     original: string; preview?: string; width?: number; height?: number
-    createdAt?: string; origin?: string; queued?: boolean
+    createdAt?: string; origin?: string; queued?: boolean; error?: string
   }[]
 }
 type PeekJson = { preview?: string; width?: number; height?: number; lens?: string; zoom?: number; phone?: string }
@@ -194,6 +196,24 @@ const phoneName = (id: string) => `phone-${id.slice(0, 8).toLowerCase()}.jpg`
 const sameIds = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, i) => id === b[i])
 
 let polling = false
+// Consecutive exit-69 polls and ticks left to skip because of them.
+let misses = 0
+let skipTicks = 0
+// Phone ids a submit is taking right now.
+const taking = new Set<string>()
+
+function resetBackoff(): void {
+  misses = 0
+  skipTicks = 0
+}
+
+function pollTick($: EngineInterface): void {
+  if (skipTicks > 0) {
+    skipTicks -= 1
+    return
+  }
+  void pollInbox($)
+}
 
 // Mirrors the Mac inbox into the tray; never launches the app.
 async function pollInbox($: EngineInterface): Promise<void> {
@@ -204,6 +224,12 @@ async function pollInbox($: EngineInterface): Promise<void> {
     const cli = await findCli($, p)
     if (!cli) return
     const run = await $.process.run([cli, 'inbox', '--json', '--no-launch'], { timeoutMs: 10_000 })
+    if (run.exitCode === CLI_UNAVAILABLE) {
+      misses += 1
+      skipTicks = Math.min(2 ** misses, POLL_MAX_TICKS) - 1
+      return
+    }
+    if (run.exitCode === 0) resetBackoff()
     const listed = run.exitCode === 0 ? parseJson<InboxJson>(run.stdout).items : undefined
     if (!listed) return
     const ids = listed.map(item => item.id)
@@ -282,9 +308,17 @@ const imageBlock = async ($: EngineInterface, path: string): Promise<Block> => (
   source: { type: 'base64', media_type: 'image/jpeg', data: (await $.fs.read(path, { as: 'bytes' })).base64 },
 })
 
-// Chat-safe: originals are named `SnapCam 2026-… at ….heic`.
-const recentName = (original: string) =>
-  `recent-${baseName(original).replace(/\.[^.]*$/, '').replace(/[^\w.-]+/g, '-')}.jpg`
+// Chat-safe name from the CLI's unique staged one; `taken` dedupes clashes.
+function recentName(staged: string, taken: Set<string>): string {
+  const base = `recent-${baseName(staged).replace(/\.[^.]*$/, '').replace(/[^\w.-]+/g, '-')}`
+  let name = `${base}.jpg`
+  for (let n = 2; taken.has(name); n += 1) name = `${base}-${n}.jpg`
+  taken.add(name)
+
+  return name
+}
+
+let recentRuns = 0
 
 const ORIGINS: Record<string, string> = { phone: 'iPhone shutter', mac: 'shot from the Mac' }
 
@@ -292,34 +326,44 @@ const ORIGINS: Record<string, string> = { phone: 'iPhone shutter', mac: 'shot fr
 async function recentPhotos($: EngineInterface, count: number): Promise<Block[]> {
   const p = await paths($)
   const cli = await needCli($, p)
-  await $.process.run(['mkdir', '-p', p.snaps, p.recent])
-  const args = ['recent', String(count), '--preview-dir', p.recent, '--preview-size', String(SIDE), '--json']
-  const run = await runCli($, cli, args, 60)
-  if (run.exitCode !== 0) throw new Error(cliFailure(run))
-  const json = parseJson<RecentJson>(run.stdout)
-  const items = json.items ?? []
-  const folder = json.folder ?? 'the save folder'
-  if (items.length === 0) return [{ type: 'text', text: `No photos in the SnapCam history yet (${folder}).` }]
-  const blocks: Block[] = []
-  const lines: string[] = []
-  for (const [i, item] of items.entries()) {
-    let path: string | undefined
-    if (item.preview) {
-      const dest = `${p.snaps}/${recentName(item.original)}`
-      await $.process.run(['mv', '-f', item.preview, dest])
-      if (await $.fs.exists(dest)) path = dest
+  // Own staging folder per call, removed after.
+  recentRuns += 1
+  const staging = `${p.recent}/${stamp(await $.clock.now())}-${recentRuns}`
+  await $.process.run(['mkdir', '-p', p.snaps, staging])
+  try {
+    const args = ['recent', String(count), '--preview-dir', staging, '--preview-size', String(SIDE), '--json']
+    const run = await runCli($, cli, args, 60)
+    if (run.exitCode !== 0) throw new Error(cliFailure(run))
+    const json = parseJson<RecentJson>(run.stdout)
+    const items = json.items ?? []
+    const folder = json.folder ?? 'the save folder'
+    if (items.length === 0) return [{ type: 'text', text: `No photos in the SnapCam history yet (${folder}).` }]
+    const blocks: Block[] = []
+    const lines: string[] = []
+    const failed: string[] = []
+    const names = new Set<string>()
+    for (const [i, item] of items.entries()) {
+      let path: string | undefined
+      if (item.preview) {
+        const dest = `${p.snaps}/${recentName(item.preview, names)}`
+        await $.process.run(['mv', '-f', item.preview, dest])
+        if (await $.fs.exists(dest)) path = dest
+      }
+      if (!path) failed.push(`${item.original}: ${item.error ?? 'no preview'}`)
+      const origin = ORIGINS[item.origin ?? ''] ?? 'origin unknown'
+      const queued = item.queued ? '; also waiting in the tray above the prompt' : ''
+      const shown = path ? `${path}: ${item.width ?? '?'}×${item.height ?? '?'}` : `(no preview: ${item.error ?? 'unknown'})`
+      lines.push(`${i + 1}. ${shown}, ${origin}, saved ${item.createdAt ?? '?'}${queued}. Original: ${item.original}`)
+      if (path) blocks.push(await imageBlock($, path))
     }
-    const origin = ORIGINS[item.origin ?? ''] ?? 'origin unknown'
-    const queued = item.queued ? '; also waiting in the tray above the prompt' : ''
-    lines.push(
-      `${i + 1}. ${path ?? '(no preview)'}: ${item.width ?? '?'}×${item.height ?? '?'}, ${origin}, ` +
-        `saved ${item.createdAt ?? '?'}${queued}. Original: ${item.original}`,
-    )
-    if (path) blocks.push(await imageBlock($, path))
-  }
-  const text = `Last ${items.length} photo(s) from the SnapCam history (${folder}), newest first.\n${lines.join('\n')}`
+    const failures = failed.length > 0 ? `\nCould not read ${failed.length}:\n${failed.join('\n')}` : ''
+    const text =
+      `Last ${items.length} photo(s) from the SnapCam history (${folder}), newest first.\n${lines.join('\n')}${failures}`
 
-  return [{ type: 'text', text }, ...blocks]
+    return [{ type: 'text', text }, ...blocks]
+  } finally {
+    await $.process.run(['rm', '-rf', staging])
+  }
 }
 
 async function frame($: EngineInterface, lens?: Lens, zoom?: number, exposure?: number): Promise<Block[]> {
@@ -604,6 +648,7 @@ export const register: Register = on => {
       name: 'light',
       description:
         "Turn the user's iPhone light (the steady torch, SnapCam app) on at a brightness, or off with 0. " +
+        'level is absolute (0..1 of the maximum), not a step from the current one; the phone clamps it. ' +
         'Same as flash on; photos taken while it is lit fire no extra flash. It stays lit until turned off, so ' +
         'turn it off when done. The phone refuses while it is too hot (camera_state says "light off (hot)"). ' +
         'Shoots nothing; peek to check.',
@@ -653,7 +698,7 @@ export const register: Register = on => {
       isDeferred: false,
     })
     if (e.isInteractive) {
-      $.clock.every(POLL_MS, () => void pollInbox($))
+      $.clock.every(POLL_MS, () => pollTick($))
       void pollInbox($)
     }
 
@@ -692,7 +737,8 @@ export const register: Register = on => {
     const input = e as unknown as { lens?: string; zoom?: number; exposure?: number }
     const lens = LENSES.find(l => l.toLowerCase() === input.lens?.toLowerCase())
     const zoom = Number(input.zoom) > 0 ? Number(input.zoom) : undefined
-    const bias = input.exposure === undefined ? NaN : Number(input.exposure)
+    // null from the model means unset, not 0 EV.
+    const bias = input.exposure == null ? NaN : Number(input.exposure)
     const exposure = Number.isFinite(bias) ? Math.min(Math.max(bias, -100), 100) : undefined
 
     return answer(frame($, lens, zoom, exposure))
@@ -731,12 +777,28 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     if (e.command || e.isMeta || e.origin?.kind === 'plugin') return next(e)
-    const tray = await read($, pending)
-    const fromPhone = await read($, phoneTray)
+    resetBackoff()
+    // Take the tray only if some surface shows it.
+    const shown = (await $.session.surfaces()).some(surface => surface !== 'mobile')
+    let tray: string[] = []
+    let fromPhone: InboxItem[] = []
+    if (shown) {
+      await update($, pending, list => {
+        tray = [...list]
+        return list.length > 0 ? [] : list
+      })
+      // Same tick as the read: an overlapping submit skips these.
+      fromPhone = (await read($, phoneTray)).filter(item => !taking.has(item.id))
+      for (const item of fromPhone) taking.add(item.id)
+    }
     const typed = e.text.match(SNAP_PATH) ?? []
     if (tray.length + fromPhone.length + typed.length === 0) return next(e)
-    await update($, pending, () => [])
-    const phoneShots = fromPhone.length > 0 ? await takeTray($, fromPhone) : []
+    let phoneShots: string[] = []
+    try {
+      phoneShots = fromPhone.length > 0 ? await takeTray($, fromPhone) : []
+    } finally {
+      for (const item of fromPhone) taking.delete(item.id)
+    }
     const attached = [...tray, ...phoneShots]
     const found = [...new Set([...attached, ...typed])]
     if (found.length === 0) return next(e)

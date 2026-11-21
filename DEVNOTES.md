@@ -9,7 +9,7 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.10) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.11) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}` |
 | `helper/SnapCam.swift` + `helper/Info.plist` | the Continuity/Desk View helper, built on first use |
@@ -21,7 +21,8 @@ Runtime state (outside the repo): `~/Library/Application Support/snap-cam/`
 `last.status` (helper's answer), `debug.log` (one line per helper failure, 0.8.3+),
 `{desk,iphone}-zoom.txt`, `flash.txt`, `last-mode.txt`,
 `last-shot.txt` (flash requested/sent), `thumbs/`, `previews/` (+ `.json` size sidecar),
-`inbox-staging/` (CLI inbox previews before the move), `recent-staging/` (same for `recent`), `peek.jpg` (last `peek`, overwritten).
+`inbox-staging/` (CLI inbox previews before the move), `recent-staging/<stamp>-<n>/` (one per
+`recent_photos` call, removed after it), `peek.jpg` (last `peek`, overwritten).
 Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
 
 ## How it works
@@ -66,31 +67,39 @@ Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   device's `wasDisconnectedNotification`.
 - **Phone inbox in the tray** (0.8.8, ADR 0003 step 3; snapcam-app `feat/inbox`): photos shot
   with the iPhone app's own shutter land in the Mac app's inbox. In interactive sessions
-  `session.start` starts `$.clock.every(3000)` → `pollInbox`: when `findCli` finds the CLI,
+  `session.start` starts `$.clock.every(3000)` → `pollTick` → `pollInbox`: when `findCli` finds the CLI,
   `snapcam-cli inbox --json --no-launch` (never launches the app; exit 69 or bad JSON leaves
-  the tray as is; one poll at a time). Listed items minus `dismissed` become `phoneTray`
+  the tray as is; one poll at a time). Backoff (0.8.11): after n exit-69 polls in a row the
+  next one waits min(2ⁿ, 10) ticks (6, 12, 24, 30 s…); exit 0 or a prompt submit resets it. Listed items minus `dismissed` become `phoneTray`
   (`{id, original, name}`, name `phone-<first 8 of id>.jpg`, chat-safe: originals are
   `SnapCam 2026-… at ….heic`); thumbs are made with sips from the original. `dismissed`
   is pruned to ids still listed. The tray draws them beside band shots; 🔍 previews the
   original; ✕ adds the id to `dismissed` (the photo stays in the inbox, other sessions
-  still see it). On prompt submit, tray phone photos are added to `dismissed` first (so a
-  poll in flight can't bring them back), then taken with `inbox --take --id … --preview-dir
+  still see it). On prompt submit, tray photos not already in `taking` (module set of ids a
+  submit is taking; filled in the same tick as the tray read, cleared in `finally`) are taken with `inbox --take --id … --preview-dir
   inbox-staging --preview-size 2400 --json --no-launch` and moved to
   `ClaudeSnaps/phone-….jpg` (upright, EXIF applied by the app); ids the app no longer has
   (taken elsewhere) or a failed take (app quit; toast) fall back to a sips JPEG of the
   original, so what the user saw is still attached, consumed once per session.
-  Mobile draws no band, but a prompt from it still takes tray photos.
+  Surface rule (0.8.11): a prompt takes the tray (band shots and phone photos) only when
+  `$.session.surfaces()` holds a surface that draws it (anything but `mobile`). The
+  submit doesn't say which surface sent it, so with desktop and mobile both attached a
+  mobile prompt still takes the tray the desktop shows; mobile-only leaves it untouched.
+  Band shots are taken out of `pending` inside one `update`, so two submits can't share them.
 - **Camera tools for the model** (0.8.9), all via `snapcam-cli` (may launch the app):
   `peek` (`peek --preview peek.jpg --json`, ~1280 px raw frame, not in the photo library;
   text + image), `frame(lens?, zoom?, exposure?)` (`frame [--lens] [--zoom]`, then
   `exposure EV` when given; exposure alone skips `frame`; text; no inputs reads),
-  `light(level)` (0.8.10; `light LEVEL|off`, level clamped 0..1, 0 = off; text),
+  `light(level)` (0.8.10; `light LEVEL|off`, absolute level clamped 0..1, 0 = off; text),
+  `frame` ignores `exposure: null` (0.8.11; it used to become 0 EV),
   `camera_state` (`state`, text: caps incl. light/exposure ranges, live framing incl.
   light/exposure/`light off (hot)`, inbox count; exit 0 without a phone),
   `recent_photos(count?)` (0.8.9, replaces `take_inbox`; `recent N --preview-dir
-  recent-staging --preview-size 2400 --json`, default 1, cap 5): the newest photos of the Mac
+  recent-staging/<stamp>-<n> --preview-size 2400 --json`, default 1, cap 5): the newest photos of the Mac
   app's save folder, any origin (phone shutter, Mac, CLI), previews moved to
-  `ClaudeSnaps/recent-<original name, chat-safe>.jpg`; text with paths, origin (from the
+  `ClaudeSnaps/recent-<CLI staged name, chat-safe>.jpg` (the CLI makes names unique per call,
+  `name 2.jpg`; the mod adds `-2` if chat-safe names still clash); items with `error`
+  (CLI from snapcam-app `fix/sprint-1`) are listed as unreadable, the rest still come; text with paths, origin (from the
   app's `com.realdnchka.snapcam.origin` xattr; unknown for older files) and «also in the
   tray» + one image block each. Reads only: the inbox and the tray are untouched; the
   hidden inbox queue now exists only for the tray. Failures `deny` with the exit-code reason (69/75/64/1). Descriptions say: look
@@ -177,6 +186,12 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 
 ## Open / unverified
+
+- 0.8.11 (branch `fix/sprint-1`): overlapping-submit guard, mobile-only tray rule, poll
+  backoff, `recent_photos` naming/errors/staging cleanup, `frame exposure: null`. Checked
+  with `claude plugin test` (fake CLI) only. The real CLI's `recent --json` shape was checked
+  against the installed app. snapcam-app `fix/sprint-1` raises the protocol to 6 and adds
+  `light off (iPhone app in background)` to `state`/`frame` text; the mod passes it through.
 
 - 0.8.10 `light` and `frame exposure`: checked with `claude plugin test` (fake CLI) only.
   Needs the snapcam-app `feat/camera-control` build (protocol 5, CLI `light`/`exposure`);

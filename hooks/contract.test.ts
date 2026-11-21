@@ -76,8 +76,8 @@ function fakeMac(on: On, failTakes = 0): string[][] {
     if (argv[1] === 'recent') {
       const dir = argv[argv.indexOf('--preview-dir') + 1]
       const items = [
-        { original: '/Pictures/SnapCam/Default/SnapCam 2026-11-21 at 10.00.02.heic', preview: `${dir}/b.jpg`, width: 4, height: 3, origin: 'phone', queued: true },
-        { original: '/Pictures/SnapCam/Default/SnapCam 2026-11-21 at 10.00.01.jpg', preview: `${dir}/a.jpg`, width: 4, height: 3, origin: 'mac' },
+        { original: '/Pictures/SnapCam/Default/SnapCam 2026-11-21 at 10.00.02.heic', preview: `${dir}/SnapCam 2026-11-21 at 10.00.02.jpg`, width: 4, height: 3, origin: 'phone', queued: true },
+        { original: '/Pictures/SnapCam/Default/SnapCam 2026-11-21 at 10.00.01.jpg', preview: `${dir}/SnapCam 2026-11-21 at 10.00.01.jpg`, width: 4, height: 3, origin: 'mac' },
       ]
 
       return { value: { exitCode: 0, stdout: JSON.stringify({ folder: '/Pictures/SnapCam/Default', items }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -115,6 +115,7 @@ test('phone shots reach the tray; a submit takes only the ones still there', asy
   on('command.register', () => ({ value: { command: 'snap' } }))
   on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as Spec).name}` } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.surfaces', () => ({ value: ['desktop'] }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await clock.advance(3000)
 
@@ -150,6 +151,7 @@ test('a failed take keeps phone shots in the tray and attaches none of them', as
   on('command.register', () => ({ value: { command: 'snap' } }))
   on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as Spec).name}` } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.surfaces', () => ({ value: ['desktop'] }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await clock.advance(3000)
 
@@ -176,6 +178,7 @@ test('take_inbox is gone; recent_photos reads history and leaves the tray alone'
     return { value: { tool: `mcp__snap-cam__${name}` } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.surfaces', () => ({ value: ['desktop'] }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await clock.advance(3000)
 
@@ -206,6 +209,7 @@ test('take_inbox is gone; recent_photos reads history and leaves the tray alone'
 
 test('recent_photos asks for one photo by default', async ($, on) => {
   mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  mock.clock(on)
   const recent: string[][] = []
   on('fs.exists', (_, e) => ({ value: e.path === CLI }))
   on('process.run', (_, e) => {
@@ -309,4 +313,156 @@ test('frame sets exposure alone or after lens and zoom', async ($, on) => {
   expect(calls).toEqual([['exposure', '-1'], ['frame', '--zoom', '2'], ['exposure', '0.5'], ['frame']])
   expect(done.result?.[0]?.text).toContain('Framing set')
   expect(done.result?.[0]?.text).toContain('exposure -1 EV')
+})
+
+const ran = (exitCode: number, stdout = '', stderr = '') => ({
+  value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false },
+})
+
+function startHooks(on: On): void {
+  on('command.register', () => ({ value: { command: 'snap' } }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as Spec).name}` } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+}
+
+test('overlapping submits take a tray photo once', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const clock = mock.clock(on)
+  const takes: string[][] = []
+  let open: () => void = () => {}
+  const gate = new Promise<void>(resolve => (open = resolve))
+  on('fs.exists', (_, e) => ({ value: e.path === CLI || e.path.includes('/ClaudeSnaps/') }))
+  on('process.run', async (_, e) => {
+    const argv = [...e.argv]
+    if (argv[0] !== CLI) return ran(0)
+    if (!argv.includes('--take')) return ran(0, JSON.stringify({ items: [item(A)], remaining: 1 }))
+    takes.push(argv.slice(1))
+    await gate
+
+    return ran(0, JSON.stringify({ items: [{ ...item(A), preview: `/staging/${A}.jpg` }], remaining: 0 }))
+  })
+  const sent: string[] = []
+  on('prompt.submit', (_, e) => {
+    sent.push(e.text)
+    return { text: e.text, context: e.context }
+  })
+  on('session.surfaces', () => ({ value: ['desktop'] }))
+  startHooks(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(3000)
+
+  const first = $.prompt.submit({ text: 'one', wait: false, origin: { kind: 'unclassified' } })
+  const second = $.prompt.submit({ text: 'two', wait: false, origin: { kind: 'unclassified' } })
+  open()
+  await Promise.all([first, second])
+
+  expect(takes).toHaveLength(1)
+  expect(sent.filter(text => text.includes('📷 phone-aaaaaaaa.jpg'))).toHaveLength(1)
+})
+
+test('a submit from a mobile-only session leaves the tray', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const clock = mock.clock(on)
+  const calls = fakeMac(on)
+  let sent = ''
+  on('prompt.submit', (_, e) => {
+    sent = e.text
+    return { text: e.text, context: e.context }
+  })
+  on('session.surfaces', () => ({ value: ['mobile'] }))
+  startHooks(on)
+  await $.session.start({ cwd: '/', surface: 'mobile', isInteractive: true })
+  await clock.advance(3000)
+
+  await $.prompt.submit({ text: 'from the phone', wait: false, origin: { kind: 'bridge' } })
+
+  expect(calls.some(args => args.includes('--take'))).toBe(false)
+  expect(sent).toBe('from the phone')
+})
+
+test('recent_photos keeps same-named photos apart, lists unreadable ones, cleans staging', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  mock.clock(on)
+  const runs: string[][] = []
+  on('fs.exists', (_, e) => ({ value: e.path === CLI || e.path.includes('/ClaudeSnaps/') }))
+  on('fs.read', () => ({ value: { base64: 'AA==' } }))
+  on('process.run', (_, e) => {
+    const argv = [...e.argv]
+    runs.push(argv)
+    if (argv[0] !== CLI) return ran(0)
+    const dir = argv[argv.indexOf('--preview-dir') + 1]
+    const items = [
+      { original: '/D/IMG 1.heic', preview: `${dir}/IMG 1.jpg`, width: 4, height: 3 },
+      { original: '/D/IMG 1.jpg', preview: `${dir}/IMG 1 2.jpg`, width: 4, height: 3 },
+      { original: '/D/broken.heic', error: "Can't decode broken.heic" },
+    ]
+
+    return ran(0, JSON.stringify({ folder: '/D', items }), "snapcam-cli: no preview for /D/broken.heic\n")
+  })
+  startHooks(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false })
+
+  const done = (await $.tool.call({ tool: 'mcp__snap-cam__recent_photos', count: 3 } as never)) as unknown as Done & {
+    result?: { type: string }[]
+  }
+
+  const text = done.result?.[0]?.text ?? ''
+  expect(done.deny).toBeUndefined()
+  expect(done.result?.map(block => block.type)).toEqual(['text', 'image', 'image'])
+  expect(text).toContain('/home/Pictures/SnapCam/ClaudeSnaps/recent-IMG-1.jpg')
+  expect(text).toContain('/home/Pictures/SnapCam/ClaudeSnaps/recent-IMG-1-2.jpg')
+  expect(text).toContain("/D/broken.heic: Can't decode broken.heic")
+  const recent = runs.find(argv => argv[0] === CLI) ?? []
+  const staging = recent[recent.indexOf('--preview-dir') + 1] ?? ''
+  expect(staging.startsWith('/home/Library/Application Support/snap-cam/recent-staging/')).toBe(true)
+  expect(runs.at(-1)).toEqual(['rm', '-rf', staging])
+})
+
+test('inbox polls back off while the Mac app is down and reset on a submit', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const clock = mock.clock(on)
+  let up = false
+  const polls: number[] = []
+  let now = 0
+  on('fs.exists', (_, e) => ({ value: e.path === CLI }))
+  on('process.run', (_, e) => {
+    if (e.argv[0] !== CLI) return ran(0)
+    polls.push(now)
+
+    return up ? ran(0, JSON.stringify({ items: [], remaining: 0 })) : ran(69, '', 'snapcam-cli: SnapCam is not running')
+  })
+  on('prompt.submit', (_, e) => ({ text: e.text, context: e.context }))
+  on('session.surfaces', () => ({ value: ['desktop'] }))
+  startHooks(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const tick = async (seconds: number) => {
+    for (let s = 0; s < seconds; s += 3) {
+      now += 3
+      await clock.advance(3000)
+    }
+  }
+
+  await tick(102)
+  // The first poll is the one session.start fires.
+  expect(polls.slice(1)).toEqual([6, 18, 42, 72, 102])
+
+  await $.prompt.submit({ text: 'hi', wait: false, origin: { kind: 'unclassified' } })
+  await tick(3)
+  expect(polls.at(-1)).toBe(105)
+
+  up = true
+  await tick(6)
+  await tick(9)
+  expect(polls.slice(-3)).toEqual([114, 117, 120])
+})
+
+test('frame treats a null exposure as unset', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const calls = fakeFraming(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false })
+
+  await $.tool.call({ tool: 'mcp__snap-cam__frame', zoom: 2, exposure: null } as never)
+  await $.tool.call({ tool: 'mcp__snap-cam__frame', exposure: null } as never)
+
+  expect(calls).toEqual([['frame', '--zoom', '2'], ['frame']])
 })
