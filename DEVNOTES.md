@@ -87,7 +87,8 @@ Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   mobile prompt still takes the tray the desktop shows; mobile-only leaves it untouched.
   No surface at all (an interactive SDK host that draws nothing; a `-p` run never polls)
   also leaves the tray (0.8.12): nobody saw it, and taking would empty the Mac inbox. Such a
-  prompt gets a context line with the waiting count so the model can use `recent_photos`.
+  prompt, and a mobile-only one, gets context lines: band shot paths (Desk View shots are not
+  in the history) and the phone photo count, which `recent_photos` reads.
   Band shots are taken out of `pending` inside one `update`, so two submits can't share them.
 - **Camera tools for the model** (0.8.9), all via `snapcam-cli` (may launch the app):
   `peek` (`peek --preview peek.jpg --json`, ~1280 px raw frame, not in the photo library;

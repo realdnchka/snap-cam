@@ -783,9 +783,12 @@ export const register: Register = on => {
     const shown = (await $.session.surfaces()).some(surface => surface !== 'mobile')
     let tray: string[] = []
     let fromPhone: InboxItem[] = []
-    let unseen = 0
+    const held: string[] = []
     if (!shown) {
-      unseen = (await read($, pending)).length + (await read($, phoneTray)).length
+      const band = await read($, pending)
+      const phone = (await read($, phoneTray)).length
+      if (band.length > 0) held.push(`Camera shots wait in the SnapCam tray, not attached: ${band.join(', ')}.`)
+      if (phone > 0) held.push(`${phone} phone photo(s) wait in the SnapCam tray, not attached; recent_photos reads them.`)
     } else {
       await update($, pending, list => {
         tray = [...list]
@@ -796,13 +799,6 @@ export const register: Register = on => {
       for (const item of fromPhone) taking.add(item.id)
     }
     const typed = e.text.match(SNAP_PATH) ?? []
-    const held =
-      unseen > 0
-        ? [
-            `${unseen} camera photo(s) wait in the SnapCam tray, not attached: nothing here shows the tray. ` +
-              'recent_photos reads them from the history without taking them.',
-          ]
-        : []
     if (tray.length + fromPhone.length + typed.length === 0) {
       return held.length > 0 ? next({ ...e, context: [...(e.context ?? []), ...held] }) : next(e)
     }

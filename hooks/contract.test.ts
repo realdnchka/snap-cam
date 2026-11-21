@@ -183,7 +183,7 @@ test('with no drawing surface the tray stays put and the model hears it waits', 
   await $.prompt.submit({ text: 'look', wait: false, origin: { kind: 'unclassified' } })
 
   expect(calls.some(args => args.includes('--take'))).toBe(false)
-  expect(context.join('\n')).toContain('2 camera photo(s) wait in the SnapCam tray')
+  expect(context.join('\n')).toContain('2 phone photo(s) wait in the SnapCam tray')
 })
 
 test('take_inbox is gone; recent_photos reads history and leaves the tray alone', async ($, on) => {
