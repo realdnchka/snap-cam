@@ -139,3 +139,38 @@ test('take_inbox takes at most five and returns each photo as an image', async (
   expect(blocks.map(block => block.type)).toEqual(['text', 'image', 'image'])
   expect(blocks[1]?.source?.type).toBe('base64')
 })
+
+test('take_photo shoots through the phone app and returns text plus the image', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  mock.clock(on)
+  const captures: string[][] = []
+  on('fs.exists', (_, e) => ({ value: e.path === CLI }))
+  on('fs.write', () => ({ value: undefined }))
+  on('fs.read', () => ({ value: { base64: 'AA==' } }))
+  on('process.run', (_, e) => {
+    const argv = [...e.argv]
+    const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+    if (argv[0] !== CLI || argv[1] !== 'capture') return ok('')
+    captures.push(argv.slice(1))
+    const out = argv[argv.indexOf('--preview') + 1]
+
+    return ok(JSON.stringify({ preview: out, original: '/o.heic', width: 4, height: 3, phone: 'iPhone', zoom: 2 }))
+  })
+  on('command.register', () => ({ value: { command: 'snap' } }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as Spec).name}` } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false })
+
+  const done = (await $.tool.call({ tool: 'mcp__snap-cam__take_photo', zoom: 2, delay_seconds: 0 } as never)) as unknown as {
+    result?: { type: string; text?: string; source?: { type: string } }[]
+    deny?: string
+  }
+
+  expect(done.deny).toBeUndefined()
+  expect(captures).toHaveLength(1)
+  expect(captures[0]).toContain('--zoom')
+  const blocks = done.result ?? []
+  expect(blocks.map(block => block.type)).toEqual(['text', 'image'])
+  expect(blocks[0]?.text).toContain('Photo saved: /home/Pictures/SnapCam/ClaudeSnaps/iphone-')
+  expect(blocks[1]?.source?.type).toBe('base64')
+})

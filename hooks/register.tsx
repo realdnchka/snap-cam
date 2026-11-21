@@ -579,6 +579,32 @@ export const register: Register = on => {
     return next(e)
   })
 
+  on('tool.call', { tool: TOOL }, async ($, e) => {
+    type Input = { camera?: string; delay_seconds?: number; flash?: string; lens?: string; zoom?: number }
+    const input = e as unknown as Input
+    const mode: SnapMode = input.camera === 'desk' ? 'desk' : 'iphone'
+    const delay = String(Math.min(Math.max(Number(input.delay_seconds ?? 3) || 0, 0), 60))
+    const flash = FLASHES.find(f => f === input.flash)
+    const lens = LENSES.find(l => l.toLowerCase() === input.lens?.toLowerCase())
+    const zoom = Number(input.zoom) > 0 ? Number(input.zoom) : undefined
+    if ((await read($, busy)) !== '') return { deny: 'SnapCam is busy with another shot' }
+    await update($, busy, () => mode)
+    try {
+      const taken = await shoot($, mode, { delay, flash, lens, zoom })
+      const { base64 } = await $.fs.read(taken.path, { as: 'bytes' })
+
+      return {
+        result: [
+          { type: 'text', text: `Photo saved: ${taken.path} (${taken.note})` },
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+        ],
+      }
+    } catch (error) {
+      return { deny: `SnapCam: ${error instanceof Error ? error.message : String(error)}` }
+    } finally {
+      await update($, busy, () => '')
+    }
+  }).catch(hookFailed)
   on('tool.call', { tool: `${TOOL_PREFIX}peek` }, ($, e) => answer(peek($))).catch(hookFailed)
   on('tool.call', { tool: `${TOOL_PREFIX}camera_state` }, ($, e) => answer(cameraState($))).catch(hookFailed)
   on('tool.call', { tool: `${TOOL_PREFIX}frame` }, ($, e) => {
