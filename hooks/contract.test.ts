@@ -60,8 +60,8 @@ const A = 'aaaaaaaa-0000-4000-8000-000000000001'
 const B = 'bbbbbbbb-0000-4000-8000-000000000002'
 const item = (id: string) => ({ id, original: `/Pictures/SnapCam/Default/SnapCam ${id}.heic`, width: 4, height: 3 })
 
-// A Mac app with photos A and B in the inbox; records every CLI call.
-function fakeMac(on: On): string[][] {
+// A Mac app with photos A and B in the inbox; records every CLI call. The first `failTakes` takes fail.
+function fakeMac(on: On, failTakes = 0): string[][] {
   const calls: string[][] = []
   let inbox = [item(A), item(B)]
   on('fs.exists', (_, e) => ({ value: e.path === CLI || e.path.includes('/ClaudeSnaps/phone-') }))
@@ -69,6 +69,11 @@ function fakeMac(on: On): string[][] {
     const argv = [...e.argv]
     if (argv[0] !== CLI) return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     calls.push(argv.slice(1))
+    if (argv.includes('--take') && failTakes > 0) {
+      failTakes -= 1
+
+      return { value: { exitCode: 75, stdout: '', stderr: 'snapcam-cli: phone busy', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     if (argv.includes('--take')) {
       const ids = argv.flatMap((arg, i) => (arg === '--id' ? [argv[i + 1]] : []))
       const count = Number(argv[argv.indexOf('--take') + 1]) || inbox.length
@@ -118,6 +123,30 @@ test('phone shots reach the tray; a submit takes only the ones still there', asy
   expect(take[take.indexOf('--id') + 1]).toBe(A)
   expect(sent).toContain(`📷 phone-aaaaaaaa.jpg`)
   expect(sent).not.toContain('phone-bbbbbbbb')
+})
+
+test('a failed take keeps phone shots in the tray and attaches none of them', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const clock = mock.clock(on)
+  const calls = fakeMac(on, 1)
+  const sent: string[] = []
+  on('prompt.submit', (_, e) => {
+    sent.push(e.text)
+    return { text: e.text, context: e.context }
+  })
+  on('command.register', () => ({ value: { command: 'snap' } }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as Spec).name}` } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(3000)
+
+  await $.prompt.submit({ text: 'first', wait: false, origin: { kind: 'unclassified' } })
+  expect(sent.at(-1)).toBe('first')
+
+  await $.prompt.submit({ text: 'second', wait: false, origin: { kind: 'unclassified' } })
+  expect(calls.filter(args => args.includes('--take'))).toHaveLength(2)
+  expect(sent.at(-1)).toContain('📷 phone-aaaaaaaa.jpg')
+  expect(sent.at(-1)).toContain('📷 phone-bbbbbbbb.jpg')
 })
 
 test('take_inbox takes at most five and returns each photo as an image', async ($, on) => {

@@ -237,24 +237,28 @@ async function placePreviews($: EngineInterface, p: Paths, items: NonNullable<In
   return placed
 }
 
-// Takes the tray's phone photos from the inbox, so they are consumed once.
+// Takes the tray's phone photos from the inbox, so they are consumed once; a failed take keeps them.
 async function takeTray($: EngineInterface, items: readonly InboxItem[]): Promise<string[]> {
   const ids = items.map(item => item.id)
-  await forget($, ids)
   const p = await paths($)
   await $.process.run(['mkdir', '-p', p.snaps, p.staging])
   const cli = await findCli($, p)
-  let placed = new Map<string, string>()
-  if (cli) {
-    const args = ['inbox', '--take', ...ids.flatMap(id => ['--id', id])]
-    const run = await runCli($, cli, [...args, '--preview-dir', p.staging, '--preview-size', String(SIDE), '--json', '--no-launch'], 60)
-    if (run.exitCode === 0) placed = await placePreviews($, p, parseJson<InboxJson>(run.stdout).items ?? [])
-    else $.ui.toast(`SnapCam: фото с iPhone не забраны из входящих (${run.reason})`)
+  if (!cli) {
+    $.ui.toast('SnapCam: фото с iPhone остались в лотке — приложение SnapCam для Mac не найдено')
+    return []
   }
+  const args = ['inbox', '--take', ...ids.flatMap(id => ['--id', id])]
+  const run = await runCli($, cli, [...args, '--preview-dir', p.staging, '--preview-size', String(SIDE), '--json', '--no-launch'], 60)
+  if (run.exitCode !== 0) {
+    $.ui.toast(`SnapCam: фото с iPhone не забраны из входящих и остались в лотке (${run.reason})`)
+    return []
+  }
+  await forget($, ids)
+  const placed = await placePreviews($, p, parseJson<InboxJson>(run.stdout).items ?? [])
   const out: string[] = []
   for (const item of items) {
     const dest = placed.get(item.id) ?? `${p.snaps}/${item.name}`
-    // App gone or already taken elsewhere: convert the original here.
+    // Already taken elsewhere: convert the original here.
     if (!placed.has(item.id)) {
       await $.process.run(['sips', '-s', 'format', 'jpeg', '-Z', String(SIDE), item.original, '--out', dest])
     }
@@ -561,7 +565,8 @@ export const register: Register = on => {
       description:
         "Take photos the user shot with the SnapCam iPhone app's own shutter; they wait in the Mac's inbox. " +
         `Returns up to count of them (default all, at most ${TAKE_MAX}), oldest first, as images with their paths ` +
-        '(2400 px copies; originals stay in ~/Pictures/SnapCam/Default). Taken photos leave the inbox, and ' +
+        '(2400 px copies; originals stay in the SnapCam save folder, default ~/Pictures/SnapCam/Default). ' +
+        'Taken photos leave the inbox, and ' +
         'photos the user already attached from the tray are gone from it.',
       inputSchema: {
         type: 'object',

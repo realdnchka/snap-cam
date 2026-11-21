@@ -21,7 +21,8 @@ If SnapCam for Mac is installed (`scripts/install-mac.sh` in `snapcam-app` puts 
 command-line client `SnapCam.app/Contents/Helpers/snapcam-cli` (or `$SNAPCAM_CLI`):
 
 - the phone shoots at once (its screen shows the framing); the original (HEIC, up to the
-  phone's max size, e.g. 48 MP) stays in `~/Pictures/SnapCam/Default`, an upright JPEG copy
+  phone's max size, e.g. 48 MP) stays in the SnapCam save folder (default
+  `~/Pictures/SnapCam/Default`), an upright JPEG copy
   (long side ≤ 2400 px) goes to `~/Pictures/SnapCam/ClaudeSnaps/` for the chat;
 - the SnapCam app must be open on the iPhone; the Mac app waits up to ~10 s for a paired
   phone that is reconnecting. When no paired phone answers (exit 69) or a paired one
@@ -58,15 +59,16 @@ With the SnapCam iPhone app the model also gets:
 - `frame` (`lens`, `zoom`) — move the live camera without shooting; no inputs reads it;
 - `camera_state` — lenses, zoom range, sizes, flash, the live framing and the inbox count;
 - `take_inbox` (`count`, default all, at most 5) — photos shot with the phone's own shutter,
-  oldest first, as images; taking them clears them from the Mac inbox.
+  oldest first, as images; taking them clears them from the Mac inbox. Originals stay in the
+  SnapCam save folder (default `~/Pictures/SnapCam/Default`).
 
 ## Phone inbox
 
 Photos shot with the shutter in the SnapCam iPhone app go to the Mac's inbox. While a
 session is open the mod checks it every ~3 s (never starting the Mac app) and shows new
 ones as thumbnails above the prompt, beside your own shots. Sending a prompt attaches them
-and takes them from the inbox, so each is used once; ✕ drops one from the tray but leaves it
-in the inbox.
+and takes them from the inbox, so each is used once; if the take fails they stay in the tray
+for the next prompt. ✕ drops one from the tray but leaves it in the inbox.
 
 The helper `helper/SnapCam.swift` is compiled on first use into
 `~/Library/Application Support/snap-cam/SnapCam.app` (needs Xcode Command Line Tools).
