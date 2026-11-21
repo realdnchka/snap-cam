@@ -220,8 +220,8 @@ export const contract = {
         "status" : "available"
       },
       "liveVideo" : {
-        "detail" : "stream",
-        "status" : "planned"
+        "detail" : "live view",
+        "status" : "available"
       },
       "pairing" : {
         "status" : "available"
