@@ -9,7 +9,7 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.11) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.9.0) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}` |
 | `helper/SnapCam.swift` + `helper/Info.plist` | the Continuity/Desk View helper, built on first use |
@@ -104,6 +104,13 @@ Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   tray» + one image block each. Reads only: the inbox and the tray are untouched; the
   hidden inbox queue now exists only for the tray. Failures `deny` with the exit-code reason (69/75/64/1). Descriptions say: look
   (peek), adjust (frame), then shoot, and shoot only when the user allows.
+- **Text tools** (0.9.0, snapcam-app `feat/ai-local`): `read_text(path?, recent?)` runs
+  `ocr <path>|--recent N --json` (timeout 150 s: the first Vision/model run loads assets) and
+  prints `Photo: <path>` + `[area] paragraph` lines; `ask_photo(question?, path?, recent?)` runs
+  `ask … --json [--question Q]` and prints the answer with the photo paths. The CLI does the work
+  in its own process (Vision, FoundationModels `SystemLanguageModel` only, never Private Cloud
+  Compute); it asks the app only for `--recent` paths. Any non-zero exit → `deny` with the
+  CLI's reason (69 = Apple Intelligence unavailable).
 - **Tray → prompt**: `prompt.submit` appends `📷 <name>` lines to the text and a
   `context` note telling the model to `Read` the paths; `ui.render UserMessage` hides those
   lines and draws thumbnails + 🔍 instead.
@@ -186,6 +193,11 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 
 ## Open / unverified
+
+- 0.9.0 `read_text` / `ask_photo`: checked with `claude plugin test` (fake CLI) and the
+  branch CLI on real photos on this Mac (OCR and the model work; the model's languages
+  exclude Russian, but Russian OCR text with a Russian question answered). Needs the
+  snapcam-app `feat/ai-local` build installed (CLI `ocr`/`ask`); an older app answers 64.
 
 - 0.8.11 (branch `fix/sprint-1`): overlapping-submit guard, mobile-only tray rule, poll
   backoff, `recent_photos` naming/errors/staging cleanup, `frame exposure: null`. Checked
