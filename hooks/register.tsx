@@ -87,17 +87,18 @@ type PhoneJson = {
   originalPending?: boolean; timings?: Record<string, number>
 }
 
-// Stage timings for the note: phone shutter and processing, Mac reply, CLI and mod totals.
-function timingNote(json: Partial<PhoneJson>, modMs: number): string {
-  const t = json.timings ?? {}
+// Stage timings for the note; CLI and mod totals leave out the countdown.
+function timingNote(json: Partial<PhoneJson>, modMs: number, delayMs: number): string {
+  const t = json.timings
+  if (!t) return `${json.ms ?? '?'} ms`
   const parts = [
     t.phoneShutter !== undefined ? `shutter ${t.phoneShutter}` : '',
     t.phoneProcessed !== undefined ? `processed ${t.phoneProcessed}` : '',
     t.macReady !== undefined ? `on Mac ${t.macReady}` : '',
-    t.cliTotal !== undefined ? `cli ${t.cliTotal}` : '',
-    `total ${modMs}`,
+    t.cliTotal !== undefined ? `cli ${Math.max(t.cliTotal - delayMs, 0)}` : '',
+    `total ${Math.max(modMs - delayMs, 0)}`,
   ].filter(Boolean)
-  return `${parts.join(', ')} ms`
+  return `${parts.join(', ')} ms${delayMs > 0 ? ` after the ${delayMs / 1000} s delay` : ''}`
 }
 
 async function paths($: EngineInterface): Promise<Paths> {
@@ -485,7 +486,7 @@ async function shoot($: EngineInterface, mode: SnapMode, shot: Shot): Promise<Ta
   const note =
     `${json.phone ?? 'camera'} (${title}): ${json.width}×${json.height} ${json.format ?? ''}, ` +
     `${lens}${json.zoom !== undefined ? ` ${times(json.zoom)}` : ''}${lensNote}, ` +
-    `${timingNote(json, (await $.clock.now()) - started)}. Original: ${json.original}` +
+    `${timingNote(json, (await $.clock.now()) - started, delay * 1000)}. Original: ${json.original}` +
     (json.originalPending ? ' (still arriving from the iPhone)' : '')
 
   return { path: json.preview, note }
