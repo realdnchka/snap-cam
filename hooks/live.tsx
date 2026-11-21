@@ -2,7 +2,9 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
 import type { CameraInfo, Framing, InboxItem, LiveFrame, PaneTab, RecentItem, SnapMode } from '../types'
-import { SIDE, SOURCES, chipSvg, cliFailure, findCli, makeThumb, paths, runCli, snapToTray } from './cli'
+import {
+  CLI_USAGE, SIDE, SOURCES, baseName, chipSvg, cliFailure, findCli, makeThumb, parseJson, paths, runCli, snapToTray, times,
+} from './cli'
 
 const cameraInfo = atom({ plugin: 'snap-cam', key: 'cameraInfo' } as const, null as CameraInfo | null)
 const dismissed = atom({ plugin: 'snap-cam', key: 'dismissed' } as const, [] as string[])
@@ -50,20 +52,10 @@ type StateJson = {
 }
 type RecentJson = { items?: { original: string }[] }
 
-function parse<T>(line: string): Partial<T> {
-  try {
-    return (JSON.parse(line.trim().split('\n').pop() ?? '') ?? {}) as Partial<T>
-  } catch {
-    return {}
-  }
-}
-
-const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
-const times = (zoom: number) => `${Number(zoom.toFixed(1))}×`
 const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), hi)
 
 // Chat-safe and stable per original, so a click finds its copy again.
-export const recentName = (original: string) =>
+export const galleryName = (original: string) =>
   `recent-${baseName(original).replace(/\.[^.]*$/, '').replace(/[^\w.-]+/g, '-')}.jpg`
 
 type Run = { stream: AsyncGenerator<unknown, unknown>; mode: SnapMode; stopped: boolean; everyFrame: boolean; blit: boolean }
@@ -71,26 +63,35 @@ let run: Run | null = null
 // A child that ended by itself is restarted no sooner than this.
 let retryAt = 0
 const RETRY_MS = 5000
-const CLI_USAGE = 64
+const INFO_EVERY_MS = 10_000
 let ticking = false
+// A press or close came while a tick ran: tick once more after it.
+let again = false
+// Bumped by every stop, so a start still in its awaits gives up.
+let startGen = 0
+// When `state` was last read for the controls; null reads it now.
+let infoAt: number | null = null
+let refreshing = false
 // When the gallery was last read; null reads it at the next chance.
 let galleryAt: number | null = null
 
 function stopLive(): void {
+  startGen += 1
   if (!run) return
   run.stopped = true
   void run.stream.return(undefined).catch(() => {})
   run = null
 }
 
-async function startLive($: EngineInterface, mode: SnapMode): Promise<void> {
+async function startLive($: EngineInterface, mode: SnapMode, surfaces: readonly string[]): Promise<void> {
+  const gen = startGen
   const p = await paths($)
   const cli = await findCli($, p)
   if (!cli) {
     await update($, liveFrame, f => ({ ...f, error: 'SnapCam для Mac не установлен' }))
     return
   }
-  const surfaces = await $.session.surfaces()
+  if (gen !== startGen) return
   const blit = surfaces.includes('terminal')
   const source = mode === 'iphone' ? [] : ['--source', SOURCES[mode].source]
   const argv = [cli, 'live', '--preview-dir', `${p.dir}/live`, '--preview-size', String(LIVE_SIDE)]
@@ -113,7 +114,7 @@ async function startLive($: EngineInterface, mode: SnapMode): Promise<void> {
         for (let at = buffer.indexOf('\n'); at >= 0 && !me.stopped; at = buffer.indexOf('\n')) {
           const line = buffer.slice(0, at)
           buffer = buffer.slice(at + 1)
-          await onLine($, me, parse<LiveLine>(line))
+          await onLine($, me, parseJson<LiveLine>(line))
         }
       }
       if (!me.stopped) {
@@ -160,21 +161,35 @@ async function onLine($: EngineInterface, me: Run, line: Partial<LiveLine>): Pro
 
 // Streams only while the pane shows its camera tab.
 async function tick($: EngineInterface): Promise<void> {
-  if (ticking) return
+  if (ticking) {
+    again = true
+    return
+  }
   ticking = true
   try {
     const pane = (await $.ui.panes()).find(one => one.id === LIVE_PANE)
     const shown = !!pane && pane.isShown && pane.isPlaced
     const tab = await read($, paneTab)
     const mode = await read($, paneCamera)
-    if (run && (!shown || tab !== 'camera' || run.mode !== mode)) stopLive()
+    const surfaces = await $.session.surfaces()
+    // A surface came or went: restart with its flags.
+    const changed = run && (run.blit !== surfaces.includes('terminal') || run.everyFrame !== surfaces.some(s => s !== 'terminal'))
+    if (run && (!shown || tab !== 'camera' || run.mode !== mode || changed)) stopLive()
     const now = await $.clock.now()
-    if (shown && tab === 'camera' && !run && now >= retryAt) await startLive($, mode)
-    if (shown && tab === 'gallery' && (galleryAt === null || now - galleryAt > GALLERY_EVERY_MS)) await refreshGallery($)
+    if (shown && tab === 'camera' && (infoAt === null || now - infoAt > INFO_EVERY_MS)) {
+      infoAt = now
+      void refreshInfo($).catch(() => {})
+    }
+    if (shown && tab === 'camera' && !run && now >= retryAt) await startLive($, mode, surfaces)
+    if (shown && tab === 'gallery' && (galleryAt === null || now - galleryAt > GALLERY_EVERY_MS)) void refreshGallery($).catch(() => {})
   } catch {
     // Next tick tries again.
   } finally {
     ticking = false
+    if (again) {
+      again = false
+      void tick($)
+    }
   }
 }
 
@@ -210,11 +225,21 @@ async function refreshInfo($: EngineInterface): Promise<void> {
     await update($, paneNote, () => cliFailure(res))
     return
   }
-  await update($, cameraInfo, () => toInfo(parse<StateJson>(res.stdout)))
+  await update($, cameraInfo, () => toInfo(parseJson<StateJson>(res.stdout)))
 }
 
 // The newest photos of the save folder; thumbs made once per original.
 async function refreshGallery($: EngineInterface): Promise<void> {
+  if (refreshing) return
+  refreshing = true
+  try {
+    await readGallery($)
+  } finally {
+    refreshing = false
+  }
+}
+
+async function readGallery($: EngineInterface): Promise<void> {
   galleryAt = await $.clock.now()
   const p = await paths($)
   const cli = await findCli($, p)
@@ -224,9 +249,9 @@ async function refreshGallery($: EngineInterface): Promise<void> {
     await update($, paneNote, () => cliFailure(res))
     return
   }
-  const items: RecentItem[] = (parse<RecentJson>(res.stdout).items ?? []).map(item => ({
+  const items: RecentItem[] = (parseJson<RecentJson>(res.stdout).items ?? []).map(item => ({
     original: item.original,
-    name: recentName(item.original),
+    name: galleryName(item.original),
   }))
   for (const item of items) {
     if (!(await $.fs.exists(`${p.thumbs}/${item.name}`))) await makeThumb($, p, item.original, item.name)
@@ -246,7 +271,7 @@ async function control($: EngineInterface, args: string[]): Promise<void> {
     await update($, paneNote, () => cliFailure(res))
     return
   }
-  const framing = parse<{ framing: Framing }>(res.stdout).framing
+  const framing = parseJson<{ framing: Framing }>(res.stdout).framing
   await update($, paneNote, () => '')
   if (framing) await update($, cameraInfo, info => (info ? { ...info, framing } : info))
 }
@@ -281,7 +306,8 @@ async function toggleInbox($: EngineInterface, item: InboxItem): Promise<void> {
 
 export async function openLive($: EngineInterface): Promise<boolean> {
   const opened = await $.ui.open({ id: LIVE_PANE, title: TITLE })
-  void refreshInfo($).then(() => tick($))
+  infoAt = null
+  void tick($)
 
   return opened.isPlaced
 }
@@ -318,7 +344,10 @@ export function startLiveClock($: EngineInterface): void {
 
 export function registerLive(on: On): void {
   on('ui.close', async ($, e, next) => {
-    if (e.id === LIVE_PANE) stopLive()
+    if (e.id === LIVE_PANE) {
+      stopLive()
+      infoAt = null
+    }
 
     return next(e)
   })
@@ -386,7 +415,7 @@ export function registerLive(on: On): void {
               )}
             </Box>
           )}
-          <Button key="gallery:refresh" label="↻ Обновить" plain dimColor onPress={() => refreshGallery($)} />
+          <Button key="gallery:refresh" label="↻ Обновить" plain dimColor onPress={() => void refreshGallery($)} />
           {noteRow}
         </Box>
       )
@@ -394,11 +423,14 @@ export function registerLive(on: On): void {
 
     const phone = mode === 'iphone'
     const f = info?.framing
+    // The stream's lens and zoom are newer than the last `state`.
+    const zoomNow = frame.zoom ?? f?.zoom ?? 1
+    const lensNow = frame.lens ?? f?.lens
     let video = null
     if (e.surface === 'terminal') {
       const { Image } = $.ui.resolve(e)
-      const columns = Math.max(8, e.props.bodyColumns)
-      const rows = Math.max(4, Math.round((columns * (frame.height ?? 9)) / (frame.width ?? 16) / 2))
+      const columns = clamp(e.props.bodyColumns, 8, 255)
+      const rows = clamp(Math.round((columns * (frame.height ?? 9)) / (frame.width ?? 16) / 2), 4, 255)
       video = frame.png ? (
         <Image key="video" source={{ file: frame.png, format: 'png', generation: frame.seq }} columns={columns} rows={rows} alt="Живое видео SnapCam" />
       ) : null
@@ -408,8 +440,12 @@ export function registerLive(on: On): void {
       video = svg ? <Svg source={svg} alt="Живое видео SnapCam" /> : null
     }
     const waiting = frame.error ?? (frame.seq === 0 ? 'Подключаюсь к камере…' : 'Кадр слишком большой')
+    // Errors show over a frozen last frame too.
+    const problem = frame.error && video ? <Text color="red">⚠ {frame.error}</Text> : null
     const status = <Text dimColor>{framingLine(frame, info, mode)}</Text>
-    if (e.props.placement === 'widget') return <Box key="live" flexDirection="column">{video ?? <Text dimColor>{waiting}</Text>}</Box>
+    if (e.props.placement === 'widget') {
+      return <Box key="live" flexDirection="column">{video ?? <Text dimColor>{waiting}</Text>}{problem}</Box>
+    }
 
     const lensRow = phone && info && info.lenses.length > 0 && (
       <Box flexDirection="row" gap={1}>
@@ -417,13 +453,13 @@ export function registerLive(on: On): void {
           <Button
             key={`lens:${lens.kind}`}
             label={times(lens.zoom)}
-            variant={f?.lens === lens.kind ? 'primary' : undefined}
+            variant={lensNow === lens.kind ? 'primary' : undefined}
             onPress={() => control($, ['frame', '--lens', lens.kind])}
           />
         ))}
-        <Button key="zoom-" label="−" onPress={() => control($, ['frame', '--zoom', String(clamp((f?.zoom ?? 1) / ZOOM_STEP, info.zoomMin, info.zoomMax))])} />
-        <Text>{times(f?.zoom ?? 1)}</Text>
-        <Button key="zoom+" label="+" onPress={() => control($, ['frame', '--zoom', String(clamp((f?.zoom ?? 1) * ZOOM_STEP, info.zoomMin, info.zoomMax))])} />
+        <Button key="zoom-" label="−" onPress={() => control($, ['frame', '--zoom', String(clamp(zoomNow / ZOOM_STEP, info.zoomMin, info.zoomMax))])} />
+        <Text>{times(zoomNow)}</Text>
+        <Button key="zoom+" label="+" onPress={() => control($, ['frame', '--zoom', String(clamp(zoomNow * ZOOM_STEP, info.zoomMin, info.zoomMax))])} />
       </Box>
     )
     const flashModes = FLASH_ORDER.filter(m => info?.flashModes.includes(m))
@@ -465,6 +501,7 @@ export function registerLive(on: On): void {
         {tabs}
         <Box key="live" flexDirection="column">
           {video ?? <Text dimColor>{waiting}</Text>}
+          {problem}
         </Box>
         <Box key="status">{status}</Box>
         <Box flexDirection="row" gap={1}>

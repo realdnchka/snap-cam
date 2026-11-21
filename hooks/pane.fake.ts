@@ -3,10 +3,10 @@ import type { Engine } from 'claude-code/testing'
 import type { On, RenderSurface } from 'claude-code'
 
 export const CLI = '/cli/snapcam-cli'
-const HOME = '/Users/me'
+export const HOME = '/Users/me'
 export const LIVE = `${HOME}/Library/Application Support/snap-cam/live`
 export const A = 'aaaaaaaa-0000-4000-8000-000000000001'
-const ORIGINAL = '/Pictures/SnapCam/Default/SnapCam 2026-11-22 at 10.00.01.heic'
+export const ORIGINAL = '/Pictures/SnapCam/Default/SnapCam 2026-11-22 at 10.00.01.heic'
 export const RECENT = 'recent-SnapCam-2026-11-22-at-10.00.01.jpg'
 
 const STATE = {
@@ -32,20 +32,32 @@ const STATE = {
   ],
 }
 
-export type Fake = { calls: string[][]; spawns: string[][]; stopped: number; blits: unknown[] }
+export type Fake = { calls: string[][]; runs: string[][]; spawns: string[][]; stopped: number; blits: unknown[] }
+
+export type FakeOptions = {
+  surfaces?: () => RenderSurface[]
+  // A snapcam-cli without `live`, exiting 64 at once.
+  oldCli?: boolean
+  // A line the stream sends after its frames.
+  tail?: object
+  // Lens and zoom the stream reports, as if moved on the phone.
+  live?: { lens: string; zoom: number }
+}
 
 const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
 
 // A Mac app for the pane: state, recent, inbox, framing commands, and `live` frames.
-// `oldCli`: a snapcam-cli without `live`, exiting 64 at once.
-export function fakePaneMac(on: On, shown: () => boolean, surfaces: RenderSurface[] = ['desktop'], oldCli = false): Fake {
-  const fake: Fake = { calls: [], spawns: [], stopped: 0, blits: [] }
+export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions = {}): Fake {
+  const { oldCli = false, tail, live = { lens: 'wide', zoom: 1 } } = options
+  const surfaces = options.surfaces ?? (() => ['desktop'])
+  const fake: Fake = { calls: [], runs: [], spawns: [], stopped: 0, blits: [] }
   mock.env(on, { HOME, SNAPCAM_CLI: CLI })
-  on('fs.exists', (_, e) => ({ value: e.path === CLI || e.path.startsWith(LIVE) || e.path.includes('/ClaudeSnaps/') }))
+  on('fs.exists', (_, e) => ({ value: e.path === CLI || e.path.startsWith(LIVE) || e.path.includes('/ClaudeSnaps/') || e.path.includes('/thumbs/') }))
   on('fs.read', () => ({ value: { base64: 'AA==' } }))
   on('fs.write', () => ({ value: undefined }))
   on('process.run', (_, e) => {
     const argv = [...e.argv]
+    fake.runs.push(argv)
     if (argv[0] !== CLI) return ok('')
     fake.calls.push(argv.slice(1))
     const framing = (patch: object) => ok(JSON.stringify({ phone: 'iPhone', framing: { ...STATE.framing, ...patch } }))
@@ -73,8 +85,9 @@ export function fakePaneMac(on: On, shown: () => boolean, surfaces: RenderSurfac
     const png = e.argv.includes('--png') ? `${LIVE}/live.png` : undefined
     try {
       for (let seq = 1; seq <= 2; seq += 1) {
-        yield { stream: 'stdout' as const, text: JSON.stringify({ seq, preview: `${LIVE}/live.jpg`, png, width: 640, height: 480, lens: 'wide', zoom: 1, phone: 'iPhone', ms: 9 }) + '\n' }
+        yield { stream: 'stdout' as const, text: JSON.stringify({ seq, preview: `${LIVE}/live.jpg`, png, width: 640, height: 480, lens: live.lens, zoom: live.zoom, phone: 'iPhone', ms: 9 }) + '\n' }
       }
+      if (tail) yield { stream: 'stdout' as const, text: JSON.stringify(tail) + '\n' }
       // Stays open like the real CLI until the mod ends the loop.
       await new Promise<void>(done => next.signal.addEventListener('abort', () => done()))
     } finally {
@@ -89,7 +102,7 @@ export function fakePaneMac(on: On, shown: () => boolean, surfaces: RenderSurfac
     fake.blits.push(e)
     return { value: {} }
   })
-  on('session.surfaces', () => ({ value: surfaces }))
+  on('session.surfaces', () => ({ value: surfaces() }))
   on('command.register', () => ({ value: { command: 'snap' } }))
   on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as { name: string }).name}` } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
