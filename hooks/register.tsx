@@ -323,7 +323,7 @@ export const register: Register = on => {
 
       return {
         result: [
-          { type: 'text', text: `Photo saved: ${taken.path} (${taken.note})` },
+          { type: 'text', text: `Photo saved: ${taken.path} (${taken.note}). Read this file to see the photo.` },
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
         ],
       }

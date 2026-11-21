@@ -114,6 +114,7 @@ Photos: `~/Pictures/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   `e.input`. Result must be a string or an array of blocks (not `{content}`).
 - Tool-result images must use the Messages API shape `{type:'image', source:{type:'base64', media_type, data}}`;
   the MCP shape (`data`, `mimeType`) is dropped before the model (checked 0.8.4).
+  Even the API shape is not shown to the model (2026-11-21), so the text tells it to `Read` the path.
 - Give gating hooks a `.catch`; `next.error.{kind,message}` explains failures.
 - `$.process.run` time in flight doesn't count toward a hook's budget.
 - State values a drawing reads live in atoms declared in `types/index.d.ts`.
