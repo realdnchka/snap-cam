@@ -39,8 +39,7 @@ Photos: `~/Pictures/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   not paired / phone app closed, decided before the shot is asked for) → Continuity
   helper with the reason in the tool text; 1 (phone error, or a timeout or drop after the
   shot was asked for: the phone may have shot) or other → `deny`. Band `📷 iPhone` uses
-  it with a 3 s countdown to aim (the phone shows a live preview), Fast Capture with
-  delay 0; busy = `phone` shows «снимает iPhone…». `/snap caps|status|pair` print the
+  it with no countdown (the user aims first), Fast Capture likewise; busy = `phone` shows «снимает iPhone…». `/snap caps|status|pair` print the
   CLI's output; `pair` also brings up the Mac app's pairing sheet.
 - **Continuity shot flow** (`shoot` → `runHelper`): `ensureApp` rebuilds SnapCam when
   `helper/SnapCam.swift` ≠ `built.swift` (swiftc + ad-hoc codesign), `pkill -f

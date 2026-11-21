@@ -23,8 +23,8 @@ const PHONE_BUSY = 'phone'
 // snapcam-cli from SnapCam for Mac (repo snapcam-app); 69 = no app or no paired phone.
 const CLI_IN_APP = 'SnapCam.app/Contents/Helpers/snapcam-cli'
 const CLI_TIMEOUT_S = 25
-// A band press gets time to aim the phone; the phone screen shows the framing.
-const MANUAL_COUNTDOWN_S = 3
+// User shots fire at once: they aim before pressing.
+const MANUAL_COUNTDOWN_S = 0
 const CLI_UNAVAILABLE = 69
 const SIDE = 2400
 
