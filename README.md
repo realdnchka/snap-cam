@@ -30,7 +30,7 @@ The original stays in the SnapCam save folder (default `~/Pictures/SnapCam/Defau
 upright JPEG copy (long side ≤ 2400 px) goes to `~/Pictures/SnapCam/ClaudeSnaps/` for the chat.
 For the iPhone app the SnapCam app must be open on the phone; the Mac app waits up to ~10 s
 for a paired phone that is reconnecting. A wireless iPhone can take 10–20 s to appear as a
-Continuity camera; the Mac app waits up to 10 s for it.
+Continuity camera or Desk View; the Mac app waits up to 25 s for it.
 
 The Mac app's window has the same sources in its toolbar picker, with a live preview, zoom
 and flash for Mac cameras. Settings per camera (zoom, flash, format) are used when the mod

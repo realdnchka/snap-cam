@@ -42,6 +42,8 @@ const CLI_USAGE = 64
 // snapcam-cli from SnapCam for Mac (repo snapcam-app); 69 = no app, phone or camera.
 const CLI_IN_APP = 'SnapCam.app/Contents/Helpers/snapcam-cli'
 const CLI_TIMEOUT_S = 25
+// A wireless iPhone can take 10–20 s to appear as a Mac camera.
+const MAC_TIMEOUT_S = 45
 // User shots fire at once: they aim before pressing.
 const MANUAL_COUNTDOWN_S = 0
 const CLI_UNAVAILABLE = 69
@@ -361,7 +363,9 @@ async function peek($: EngineInterface, mode: SnapMode): Promise<Block[]> {
   const p = await paths($)
   const cli = await needCli($, p)
   const file = `${p.dir}/peek.jpg`
-  const run = await runCli($, cli, ['peek', '--preview', file, '--json', '--source', SOURCES[mode].source], 30)
+  // No --source for the phone: older Mac apps still take that call.
+  const source = mode === 'iphone' ? [] : ['--source', SOURCES[mode].source]
+  const run = await runCli($, cli, ['peek', '--preview', file, '--json', ...source], mode === 'iphone' ? 30 : MAC_TIMEOUT_S + 5)
   if (run.exitCode !== 0) throw new Error(cliFailure(run))
   const json = parseJson<PeekJson>(run.stdout)
   const zoom = json.zoom !== undefined ? `, zoom ${times(json.zoom)}` : ''
@@ -394,14 +398,15 @@ async function shoot($: EngineInterface, mode: SnapMode, shot: Shot): Promise<Ta
   const { source, title } = SOURCES[mode]
   const phone = mode === 'iphone'
   const delay = shot.delay === 'manual' ? MANUAL_COUNTDOWN_S : Number(shot.delay)
-  const argv = [cli, 'capture', '--source', source, '--json', '--delay', String(delay), '--timeout', String(CLI_TIMEOUT_S)]
+  const timeout = phone ? CLI_TIMEOUT_S : MAC_TIMEOUT_S
+  const argv = [cli, 'capture', ...(phone ? [] : ['--source', source]), '--json', '--delay', String(delay), '--timeout', String(timeout)]
   argv.push('--preview', out, '--preview-size', String(SIDE))
   // Mac cameras have no lenses; zoom is a 1–3× crop there.
   if (shot.lens && phone) argv.push('--lens', shot.lens)
   if (shot.zoom !== undefined) argv.push('--zoom', String(shot.zoom))
   // Unset options use the Mac app's settings for that camera.
   if (shot.flash) argv.push('--flash', shot.flash)
-  const run = await $.process.run(argv, { timeoutMs: (CLI_TIMEOUT_S + delay + 30) * 1000 })
+  const run = await $.process.run(argv, { timeoutMs: (timeout + delay + 30) * 1000 })
   const json = parseJson(run.stdout)
   const reason = json.error ?? (run.stderr.trim().replace(/^snapcam-cli: /, '') || `snapcam-cli exit ${run.exitCode}`)
   if (run.exitCode !== 0 || !json.preview) throw new Error(cliFailure({ exitCode: run.exitCode, stdout: run.stdout, reason }))

@@ -260,6 +260,7 @@ test('take_photo shoots through the phone app and returns text plus the image', 
   expect(done.deny).toBeUndefined()
   expect(captures).toHaveLength(1)
   expect(captures[0]).toContain('--zoom')
+  expect(captures[0]).not.toContain('--source')
   const blocks = done.result ?? []
   expect(blocks.map(block => block.type)).toEqual(['text', 'image'])
   expect(blocks[0]?.text).toContain('Photo saved: /home/Pictures/SnapCam/ClaudeSnaps/iphone-')
@@ -515,8 +516,9 @@ test('peek takes a camera; without one it looks through the phone', async ($, on
   await $.tool.call({ tool: 'mcp__snap-cam__peek', camera: 'continuity' } as never)
   await $.tool.call({ tool: 'mcp__snap-cam__peek' } as never)
 
-  const sources = calls.filter(call => call[0] === 'peek').map(call => call[call.indexOf('--source') + 1])
-  expect(sources).toEqual(['continuity', 'phone'])
+  const peeks = calls.filter(call => call[0] === 'peek')
+  expect(peeks[0]?.[peeks[0].indexOf('--source') + 1]).toBe('continuity')
+  expect(peeks[1]).not.toContain('--source')
 })
 
 test('without SnapCam for Mac take_photo says how to install it', async ($, on) => {

@@ -31,10 +31,12 @@ pre-0.9 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are u
 - **One capture path** (0.9.0, ADR 0004; `shoot`): `findCli` = `$SNAPCAM_CLI`, else
   `~/Applications/SnapCam.app/Contents/Helpers/snapcam-cli`, else `/Applications/…`; none →
   the tool fails with «build it from snapcam-app with scripts/install-mac.sh». Runs
-  `snapcam-cli capture --source <src> --json --delay <s> --timeout 25 --preview
+  `snapcam-cli capture [--source <src>] --json --delay <s> --timeout 25|45 --preview
   <ClaudeSnaps/<mode>-stamp.jpg> --preview-size 2400 [--lens] [--zoom] [--flash]`.
   `SOURCES` maps `camera` → `--source`: `iphone` → `phone`, `continuity`, `desk` →
-  `deskView`, `mac` → `builtIn`; `--lens` only for `phone`. Unset options (flash, format,
+  `deskView`, `mac` → `builtIn`; `--source` and `--lens` only as needed (no `--source` for
+  the phone, so an older Mac app still shoots with it); 45 s timeout for Mac cameras (the app
+  waits up to 25 s for Continuity/Desk View to appear). Unset options (flash, format,
   size, rotation, Mac zoom) use the Mac app's settings for that camera; `--lens`/`--zoom`
   replace the pair. The CLI talks to SnapCam for Mac over
   `~/Library/Application Support/SnapCam/control.sock`, launching the app if needed; the app
