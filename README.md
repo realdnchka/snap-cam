@@ -21,8 +21,8 @@ If SnapCam for Mac is installed (`scripts/install-mac.sh` in `snapcam-app` puts 
 command-line client `SnapCam.app/Contents/Helpers/snapcam-cli` (or `$SNAPCAM_CLI`):
 
 - the phone shoots at once (its screen shows the framing); the original (HEIC, up to the
-  phone's max size, e.g. 48 MP) stays in `~/Pictures/SnapCam`, an upright JPEG copy
-  (long side ≤ 2400 px) goes to `~/Pictures/ClaudeSnaps/` for the chat;
+  phone's max size, e.g. 48 MP) stays in `~/Pictures/SnapCam/Default`, an upright JPEG copy
+  (long side ≤ 2400 px) goes to `~/Pictures/SnapCam/ClaudeSnaps/` for the chat;
 - the SnapCam app must be open on the iPhone; the Mac app waits up to ~10 s for a paired
   phone that is reconnecting. When no paired phone answers (exit 69) or a paired one
   didn't reconnect in time (exit 75), the mod falls back to Continuity Camera as below
@@ -37,7 +37,7 @@ A shot opens a preview window with a frame showing the captured area: −/+ (or 
 keys) set the zoom (1–3×, centred crop, remembered per camera in
 `~/Library/Application Support/snap-cam/{desk,iphone}-zoom.txt`); Space, Enter or
 «Снять» shoots, Esc cancels. The JPEG (long side ≤ 2400 px) goes to
-`~/Pictures/ClaudeSnaps/` and is attached as a thumbnail above the prompt. On send,
+`~/Pictures/SnapCam/ClaudeSnaps/` and is attached as a thumbnail above the prompt. On send,
 the mod tells the model to open the photo with Read.
 
 - `iphone` — Continuity Camera (iPhone as a wireless webcam), frames as macOS gives them.

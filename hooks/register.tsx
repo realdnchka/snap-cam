@@ -30,7 +30,8 @@ const CLI_UNAVAILABLE = 69
 const CLI_OFFLINE = 75
 const SIDE = 2400
 
-const SNAP_PATH =/\/\S*\/Pictures\/ClaudeSnaps\/[\w.-]+\.jpg/g
+// Old snaps lived in ~/Pictures/ClaudeSnaps; keep matching them.
+const SNAP_PATH = /\/\S*\/Pictures\/(?:SnapCam\/)?ClaudeSnaps\/[\w.-]+\.jpg/g
 const SNAP_LINE = /^📷 ([\w.-]+\.jpg)$/gm
 const THUMB = 96
 
@@ -61,7 +62,7 @@ async function paths($: EngineInterface): Promise<Paths> {
   return {
     dir,
     app: `${dir}/SnapCam.app`,
-    snaps: `${home}/Pictures/ClaudeSnaps`,
+    snaps: `${home}/Pictures/SnapCam/ClaudeSnaps`,
     status: `${dir}/last.status`,
     thumbs: `${dir}/thumbs`,
     home,
@@ -167,6 +168,7 @@ function fallbackCause(skipped: Skipped): string {
 async function shoot($: EngineInterface, mode: SnapMode, shot: Shot): Promise<Taken> {
   const p = await paths($)
   const out = `${p.snaps}/${mode}-${stamp(await $.clock.now())}.jpg`
+  await $.process.run(['mkdir', '-p', p.snaps])
   await $.fs.write(`${p.dir}/last-mode.txt`, mode)
   let fellBack: Skipped | null = null
   if (mode === 'iphone') {
@@ -323,7 +325,7 @@ export const register: Register = on => {
 
       return {
         result: [
-          { type: 'text', text: `Photo saved: ${taken.path} (${taken.note}). Read this file to see the photo.` },
+          { type: 'text', text: `Photo saved: ${taken.path} (${taken.note})` },
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
         ],
       }

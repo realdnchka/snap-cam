@@ -20,7 +20,7 @@ Runtime state (outside the repo): `~/Library/Application Support/snap-cam/`
 `last.status` (helper's answer), `debug.log` (one line per helper failure, 0.8.3+),
 `{desk,iphone}-zoom.txt`, `flash.txt`, `last-mode.txt`,
 `last-shot.txt` (flash requested/sent), `thumbs/`, `previews/` (+ `.json` size sidecar).
-Photos: `~/Pictures/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
+Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
 
 ## How it works
 

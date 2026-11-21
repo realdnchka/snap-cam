@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 
 let args = CommandLine.arguments
 let mode = args.count > 1 ? args[1] : "iphone"
-let outPath = args.count > 2 ? args[2] : NSHomeDirectory() + "/Pictures/ClaudeSnaps/snap.jpg"
+let outPath = args.count > 2 ? args[2] : NSHomeDirectory() + "/Pictures/SnapCam/ClaudeSnaps/snap.jpg"
 let statusPath = args.count > 4 ? args[4] : outPath + ".status"
 let stateDir = NSHomeDirectory() + "/Library/Application Support/snap-cam"
 // A number shoots by itself after that many seconds; "manual" waits for the user.
