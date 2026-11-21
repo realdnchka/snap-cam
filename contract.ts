@@ -231,7 +231,7 @@ export const contract = {
         "status" : "available"
       },
       "formatSize" : {
-        "detail" : "inspector",
+        "detail" : "inspector (format, size); quality: phone default",
         "status" : "available"
       },
       "frameLens" : {
@@ -291,7 +291,7 @@ export const contract = {
         "status" : "available"
       },
       "formatSize" : {
-        "detail" : "Mac default",
+        "detail" : "Mac default; quality: phone default",
         "status" : "notApplicable"
       },
       "frameLens" : {
