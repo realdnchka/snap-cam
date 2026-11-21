@@ -9,19 +9,19 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.8) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.9) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}` |
 | `helper/SnapCam.swift` + `helper/Info.plist` | the Continuity/Desk View helper, built on first use |
 | `README.md` | user-facing summary |
-| `contract.ts` + `hooks/contract.test.ts` | generated camera contract (ADR 0003); `claude plugin test .` checks every ✅ MCP cell names registered tools and inputs, plus the inbox tray and `take_inbox` against a fake CLI |
+| `contract.ts` + `hooks/contract.test.ts` | generated camera contract (ADR 0003); `claude plugin test .` checks every ✅ MCP cell names registered tools and inputs, plus the inbox tray and `recent_photos` against a fake CLI |
 
 Runtime state (outside the repo): `~/Library/Application Support/snap-cam/`
 — `SnapCam.app`, `built.swift` (copy of the source it was built from), `mc/` (module cache),
 `last.status` (helper's answer), `debug.log` (one line per helper failure, 0.8.3+),
 `{desk,iphone}-zoom.txt`, `flash.txt`, `last-mode.txt`,
 `last-shot.txt` (flash requested/sent), `thumbs/`, `previews/` (+ `.json` size sidecar),
-`inbox-staging/` (CLI inbox previews before the move), `peek.jpg` (last `peek`, overwritten).
+`inbox-staging/` (CLI inbox previews before the move), `recent-staging/` (same for `recent`), `peek.jpg` (last `peek`, overwritten).
 Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
 
 ## How it works
@@ -80,13 +80,17 @@ Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   (taken elsewhere) or a failed take (app quit; toast) fall back to a sips JPEG of the
   original, so what the user saw is still attached, consumed once per session.
   Mobile draws no band, but a prompt from it still takes tray photos.
-- **Camera tools for the model** (0.8.8), all via `snapcam-cli` (may launch the app):
+- **Camera tools for the model** (0.8.9), all via `snapcam-cli` (may launch the app):
   `peek` (`peek --preview peek.jpg --json`, ~1280 px raw frame, not in the photo library;
   text + image), `frame(lens?, zoom?)` (`frame [--lens] [--zoom]`, text; no inputs reads),
   `camera_state` (`state`, text: caps, live framing, inbox count; exit 0 without a phone),
-  `take_inbox(count?)` (`inbox --take N`, default and cap 5, previews moved to
-  `ClaudeSnaps/phone-….jpg`, ids dropped from the tray; text with paths + one image block
-  each). Failures `deny` with the exit-code reason (69/75/64/1). Descriptions say: look
+  `recent_photos(count?)` (0.8.9, replaces `take_inbox`; `recent N --preview-dir
+  recent-staging --preview-size 2400 --json`, default 1, cap 5): the newest photos of the Mac
+  app's save folder, any origin (phone shutter, Mac, CLI), previews moved to
+  `ClaudeSnaps/recent-<original name, chat-safe>.jpg`; text with paths, origin (from the
+  app's `com.realdnchka.snapcam.origin` xattr; unknown for older files) and «also in the
+  tray» + one image block each. Reads only: the inbox and the tray are untouched; the
+  hidden inbox queue now exists only for the tray. Failures `deny` with the exit-code reason (69/75/64/1). Descriptions say: look
   (peek), adjust (frame), then shoot, and shoot only when the user allows.
 - **Tray → prompt**: `prompt.submit` appends `📷 <name>` lines to the text and a
   `context` note telling the model to `Read` the paths; `ui.render UserMessage` hides those
@@ -170,6 +174,10 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 
 ## Open / unverified
+
+- 0.8.9 `recent_photos`: checked with `claude plugin test` (fake CLI) only. Needs the
+  snapcam-app `feat/recent` build installed (CLI `recent`); an older app answers it with an
+  error. Origins exist only for photos saved by that build.
 
 - 0.8.8 inbox tray and camera tools: checked only with `claude plugin test` (fake CLI) and the
   real CLI's `--no-launch` exit 69; not run in a session nor against a phone. Needs the

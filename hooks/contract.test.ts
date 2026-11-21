@@ -52,7 +52,9 @@ test('the contract names the camera tools of ADR 0003', () => {
   expect(detail('flash')).toEqual([['take_photo', 'flash']])
   expect(detail('peek')).toEqual([['peek']])
   expect(detail('state')).toEqual([['camera_state']])
-  expect(detail('inbox')).toEqual([['take_inbox', 'count']])
+  expect(detail('inbox')).toEqual([])
+  expect(mcp.inbox?.status).toBe('notApplicable')
+  expect(detail('recent')).toEqual([['recent_photos', 'count']])
 })
 
 const CLI = '/cli/snapcam-cli'
@@ -64,11 +66,20 @@ const item = (id: string) => ({ id, original: `/Pictures/SnapCam/Default/SnapCam
 function fakeMac(on: On, failTakes = 0): string[][] {
   const calls: string[][] = []
   let inbox = [item(A), item(B)]
-  on('fs.exists', (_, e) => ({ value: e.path === CLI || e.path.includes('/ClaudeSnaps/phone-') }))
+  on('fs.exists', (_, e) => ({ value: e.path === CLI || e.path.includes('/ClaudeSnaps/') }))
   on('process.run', (_, e) => {
     const argv = [...e.argv]
     if (argv[0] !== CLI) return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     calls.push(argv.slice(1))
+    if (argv[1] === 'recent') {
+      const dir = argv[argv.indexOf('--preview-dir') + 1]
+      const items = [
+        { original: '/Pictures/SnapCam/Default/SnapCam 2026-11-21 at 10.00.02.heic', preview: `${dir}/b.jpg`, width: 4, height: 3, origin: 'phone', queued: true },
+        { original: '/Pictures/SnapCam/Default/SnapCam 2026-11-21 at 10.00.01.jpg', preview: `${dir}/a.jpg`, width: 4, height: 3, origin: 'mac' },
+      ]
+
+      return { value: { exitCode: 0, stdout: JSON.stringify({ folder: '/Pictures/SnapCam/Default', items }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     if (argv.includes('--take') && failTakes > 0) {
       failTakes -= 1
 
@@ -149,24 +160,69 @@ test('a failed take keeps phone shots in the tray and attaches none of them', as
   expect(sent.at(-1)).toContain('📷 phone-bbbbbbbb.jpg')
 })
 
-test('take_inbox takes at most five and returns each photo as an image', async ($, on) => {
+test('take_inbox is gone; recent_photos reads history and leaves the tray alone', async ($, on) => {
   mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const clock = mock.clock(on)
   const calls = fakeMac(on)
   on('fs.read', () => ({ value: { base64: 'AA==' } }))
+  on('prompt.submit', (_, e) => ({ text: e.text, context: e.context }))
+  const tools = new Set<string>()
+  on('command.register', () => ({ value: { command: 'snap' } }))
+  on('tool.register', (_, e) => {
+    const name = (e as unknown as Spec).name
+    tools.add(name)
+    return { value: { tool: `mcp__snap-cam__${name}` } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(3000)
+
+  expect(tools.has('take_inbox')).toBe(false)
+  expect(tools.has('recent_photos')).toBe(true)
+  const done = (await $.tool.call({ tool: 'mcp__snap-cam__recent_photos', count: 40 } as never)) as unknown as {
+    result?: { type: string; text?: string; source?: { type: string; media_type?: string } }[]
+    deny?: string
+  }
+
+  const recent = calls.filter(args => args[0] === 'recent')
+  expect(done.deny).toBeUndefined()
+  expect(recent[0]?.slice(0, 2)).toEqual(['recent', '5'])
+  expect(recent[0]).toContain('--preview-dir')
+  expect(recent[0]).not.toContain('--no-launch')
+  expect(calls.some(args => args.includes('--take'))).toBe(false)
+  const blocks = done.result ?? []
+  expect(blocks.map(block => block.type)).toEqual(['text', 'image', 'image'])
+  expect(blocks[0]?.text).toContain('newest first')
+  expect(blocks[0]?.text).toContain('/home/Pictures/SnapCam/ClaudeSnaps/recent-SnapCam-2026-11-21-at-10.00.02.jpg')
+  expect(blocks[0]?.text).toContain('iPhone shutter')
+  expect(blocks[1]?.source).toEqual({ type: 'base64', media_type: 'image/jpeg', data: 'AA==' })
+
+  // The tray still takes its phone shots on submit.
+  await $.prompt.submit({ text: 'look', wait: false, origin: { kind: 'unclassified' } })
+  expect(calls.some(args => args.includes('--take'))).toBe(true)
+})
+
+test('recent_photos asks for one photo by default', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const recent: string[][] = []
+  on('fs.exists', (_, e) => ({ value: e.path === CLI }))
+  on('process.run', (_, e) => {
+    const argv = [...e.argv]
+    if (argv[0] === CLI) recent.push(argv.slice(1))
+
+    return { value: { exitCode: 0, stdout: JSON.stringify({ folder: '/f', items: [] }), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('command.register', () => ({ value: { command: 'snap' } }))
   on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as Spec).name}` } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false })
 
-  const done = (await $.tool.call({ tool: 'mcp__snap-cam__take_inbox', count: 40 } as never)) as unknown as {
-    result?: { type: string; source?: { type: string } }[]
+  const done = (await $.tool.call({ tool: 'mcp__snap-cam__recent_photos' } as never)) as unknown as {
+    result?: { type: string; text?: string }[]
   }
 
-  expect(calls[0]?.slice(0, 3)).toEqual(['inbox', '--take', '5'])
-  expect(calls[0]).not.toContain('--no-launch')
-  const blocks = done.result ?? []
-  expect(blocks.map(block => block.type)).toEqual(['text', 'image', 'image'])
-  expect(blocks[1]?.source?.type).toBe('base64')
+  expect(recent[0]?.slice(0, 2)).toEqual(['recent', '1'])
+  expect(done.result?.[0]?.text).toContain('No photos')
 })
 
 test('take_photo shoots through the phone app and returns text plus the image', async ($, on) => {

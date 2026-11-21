@@ -29,6 +29,9 @@ export const contract = {
       "peek" : {
         "status" : "notApplicable"
       },
+      "recent" : {
+        "status" : "planned"
+      },
       "shoot" : {
         "detail" : "«Снять фото»",
         "status" : "planned"
@@ -70,6 +73,9 @@ export const contract = {
       "peek" : {
         "status" : "notApplicable"
       },
+      "recent" : {
+        "status" : "notApplicable"
+      },
       "shoot" : {
         "detail" : "full press",
         "status" : "planned"
@@ -107,6 +113,10 @@ export const contract = {
         "status" : "notApplicable"
       },
       "peek" : {
+        "status" : "planned"
+      },
+      "recent" : {
+        "detail" : "gallery",
         "status" : "planned"
       },
       "shoot" : {
@@ -150,6 +160,10 @@ export const contract = {
       },
       "peek" : {
         "detail" : "`peek --preview`",
+        "status" : "available"
+      },
+      "recent" : {
+        "detail" : "`recent`",
         "status" : "available"
       },
       "shoot" : {
@@ -196,6 +210,10 @@ export const contract = {
         "detail" : "inspector",
         "status" : "available"
       },
+      "recent" : {
+        "detail" : "history grid",
+        "status" : "available"
+      },
       "shoot" : {
         "status" : "available"
       },
@@ -224,8 +242,8 @@ export const contract = {
         "status" : "available"
       },
       "inbox" : {
-        "detail" : "`take_inbox count`",
-        "status" : "available"
+        "detail" : "tray only",
+        "status" : "notApplicable"
       },
       "liveVideo" : {
         "status" : "notApplicable"
@@ -235,6 +253,10 @@ export const contract = {
       },
       "peek" : {
         "detail" : "`peek`",
+        "status" : "available"
+      },
+      "recent" : {
+        "detail" : "`recent_photos count`",
         "status" : "available"
       },
       "shoot" : {
@@ -277,6 +299,10 @@ export const contract = {
         "status" : "available"
       },
       "peek" : {
+        "status" : "notApplicable"
+      },
+      "recent" : {
+        "detail" : "last photo only",
         "status" : "notApplicable"
       },
       "shoot" : {
@@ -324,6 +350,10 @@ export const contract = {
     {
       "id" : "inbox",
       "title" : "inbox"
+    },
+    {
+      "id" : "recent",
+      "title" : "recent photos"
     },
     {
       "id" : "formatSize",

@@ -57,14 +57,16 @@ With the SnapCam iPhone app the model also gets:
 
 - `peek` — one current viewfinder frame, not saved, to check the framing;
 - `frame` (`lens`, `zoom`) — move the live camera without shooting; no inputs reads it;
-- `camera_state` — lenses, zoom range, sizes, flash, the live framing and the inbox count;
-- `take_inbox` (`count`, default all, at most 5) — photos shot with the phone's own shutter,
-  oldest first, as images; taking them clears them from the Mac inbox. Originals stay in the
-  SnapCam save folder (default `~/Pictures/SnapCam/Default`).
+- `camera_state` — lenses, zoom range, sizes, flash, the live framing and how many phone
+  shots wait in the tray;
+- `recent_photos` (`count`, default 1, at most 5) — the newest photos of the SnapCam
+  history (the Mac app's save folder, default `~/Pictures/SnapCam/Default`), whatever took
+  them, newest first, as images. It only reads: the tray keeps its photos.
 
 ## Phone inbox
 
-Photos shot with the shutter in the SnapCam iPhone app go to the Mac's inbox. While a
+Photos shot with the shutter in the SnapCam iPhone app go to the Mac app's history and to
+its inbox, a hidden queue for this tray (the Mac app shows no inbox). While a
 session is open the mod checks it every ~3 s (never starting the Mac app) and shows new
 ones as thumbnails above the prompt, beside your own shots. Sending a prompt attaches them
 and takes them from the inbox, so each is used once; if the take fails they stay in the tray

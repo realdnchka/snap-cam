@@ -76,7 +76,8 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 | live video | 🔜 stream | ✅ viewfinder | — | 🔜 few fps | — | — | — |
 | peek | ✅ inspector | — | — | 🔜 | ✅ `peek --preview` | ✅ `peek` | — |
 | state / caps | ✅ | ✅ | — | 🔜 | ✅ `state`, `caps`, `status` | ✅ `camera_state` | — |
-| inbox | — (phone shots go to history; the queue is for Claude) | ✅ offline queue (unsent shots) | — (sends) | ✅ tray; 🔜 gallery | ✅ `inbox`, `inbox --take --id` | ✅ `take_inbox count` | 🔜 |
+| inbox | — (phone shots go to history; the queue is for Claude) | ✅ offline queue (unsent shots) | — (sends) | ✅ tray; 🔜 gallery | ✅ `inbox`, `inbox --take --id` | — (tray only) | 🔜 |
+| recent photos | ✅ history grid | — (last photo only) | — | 🔜 gallery | ✅ `recent` | ✅ `recent_photos count` | 🔜 |
 | format / size | ✅ inspector | — | — | — | ✅ `capture --format --size` | — (Mac default) | — |
 | pair / forget | ✅ | ✅ | — | — | ✅ `pair` | — | — |
 <!-- contract:end -->

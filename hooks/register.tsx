@@ -23,7 +23,7 @@ const LENSES: Lens[] = ['ultraWide', 'wide', 'telephoto']
 const TOOL = 'mcp__snap-cam__take_photo'
 const TOOL_PREFIX = 'mcp__snap-cam__'
 const POLL_MS = 3000
-const TAKE_MAX = 5
+const RECENT_MAX = 5
 const CLI_USAGE = 64
 const PHONE_BUSY = 'phone'
 
@@ -52,7 +52,8 @@ const BUILD = [
 ].join('\n')
 
 type Paths = {
-  dir: string; app: string; snaps: string; status: string; thumbs: string; staging: string; home: string
+  dir: string; app: string; snaps: string; status: string; thumbs: string; staging: string; recent: string
+  home: string
 }
 
 type Shot = { delay: string; flash?: Flash; lens?: Lens; zoom?: number }
@@ -65,6 +66,13 @@ type InboxJson = {
     format?: string; lens?: string; zoom?: number; phone?: string; takenAt?: string
   }[]
   remaining?: number
+}
+type RecentJson = {
+  folder?: string
+  items?: {
+    original: string; preview?: string; width?: number; height?: number
+    createdAt?: string; origin?: string; queued?: boolean
+  }[]
 }
 type PeekJson = { preview?: string; width?: number; height?: number; lens?: string; zoom?: number; phone?: string }
 type Cli = { exitCode: number; stdout: string; reason: string }
@@ -87,6 +95,7 @@ async function paths($: EngineInterface): Promise<Paths> {
     status: `${dir}/last.status`,
     thumbs: `${dir}/thumbs`,
     staging: `${dir}/inbox-staging`,
+    recent: `${dir}/recent-staging`,
     home,
   }
 }
@@ -273,30 +282,42 @@ const imageBlock = async ($: EngineInterface, path: string): Promise<Block> => (
   source: { type: 'base64', media_type: 'image/jpeg', data: (await $.fs.read(path, { as: 'bytes' })).base64 },
 })
 
-async function takeInbox($: EngineInterface, count: number): Promise<Block[]> {
+// Chat-safe: originals are named `SnapCam 2026-… at ….heic`.
+const recentName = (original: string) =>
+  `recent-${baseName(original).replace(/\.[^.]*$/, '').replace(/[^\w.-]+/g, '-')}.jpg`
+
+const ORIGINS: Record<string, string> = { phone: 'iPhone shutter', mac: 'shot from the Mac' }
+
+// History, any origin; the tray and the inbox stay as they are.
+async function recentPhotos($: EngineInterface, count: number): Promise<Block[]> {
   const p = await paths($)
   const cli = await needCli($, p)
-  await $.process.run(['mkdir', '-p', p.snaps, p.staging])
-  const args = ['inbox', '--take', String(count), '--preview-dir', p.staging, '--preview-size', String(SIDE), '--json']
+  await $.process.run(['mkdir', '-p', p.snaps, p.recent])
+  const args = ['recent', String(count), '--preview-dir', p.recent, '--preview-size', String(SIDE), '--json']
   const run = await runCli($, cli, args, 60)
   if (run.exitCode !== 0) throw new Error(cliFailure(run))
-  const json = parseJson<InboxJson>(run.stdout)
+  const json = parseJson<RecentJson>(run.stdout)
   const items = json.items ?? []
-  await forget($, items.map(item => item.id))
-  if (items.length === 0) return [{ type: 'text', text: 'The inbox is empty: no photos shot from the iPhone are waiting.' }]
-  const placed = await placePreviews($, p, items)
+  const folder = json.folder ?? 'the save folder'
+  if (items.length === 0) return [{ type: 'text', text: `No photos in the SnapCam history yet (${folder}).` }]
   const blocks: Block[] = []
   const lines: string[] = []
   for (const [i, item] of items.entries()) {
-    const path = placed.get(item.id)
-    const zoom = item.zoom !== undefined ? `, zoom ${times(item.zoom)}` : ''
+    let path: string | undefined
+    if (item.preview) {
+      const dest = `${p.snaps}/${recentName(item.original)}`
+      await $.process.run(['mv', '-f', item.preview, dest])
+      if (await $.fs.exists(dest)) path = dest
+    }
+    const origin = ORIGINS[item.origin ?? ''] ?? 'origin unknown'
+    const queued = item.queued ? '; also waiting in the tray above the prompt' : ''
     lines.push(
-      `${i + 1}. ${path ?? '(no preview)'}: ${item.width}×${item.height} ${item.format ?? ''}, lens ${item.lens ?? 'auto'}${zoom}, ` +
-        `taken ${item.takenAt ?? '?'} on ${item.phone ?? 'iPhone'}. Original: ${item.original}`,
+      `${i + 1}. ${path ?? '(no preview)'}: ${item.width ?? '?'}×${item.height ?? '?'}, ${origin}, ` +
+        `saved ${item.createdAt ?? '?'}${queued}. Original: ${item.original}`,
     )
     if (path) blocks.push(await imageBlock($, path))
   }
-  const text = `Took ${items.length} photo(s) from the inbox, oldest first; ${json.remaining ?? 0} still waiting.\n${lines.join('\n')}`
+  const text = `Last ${items.length} photo(s) from the SnapCam history (${folder}), newest first.\n${lines.join('\n')}`
 
   return [{ type: 'text', text }, ...blocks]
 }
@@ -504,7 +525,8 @@ export const register: Register = on => {
         'back to Continuity Camera: a preview window opens on the Mac and shoots by itself after a ~1.5 s ' +
         'warm-up plus delay_seconds (zoom becomes a 1–3× crop, lens is ignored; Esc cancels). ' +
         'Unless the phone sits on a stand, tell the user what to point it at and give them a few seconds. ' +
-        'Shoot only when the user allows it; to check the framing first, use peek and frame, which shoot nothing.',
+        'Shoot only when the user allows it; to check the framing first, use peek and frame, which shoot nothing. ' +
+        'For a photo the user already took, use recent_photos.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -555,23 +577,28 @@ export const register: Register = on => {
       name: 'camera_state',
       description:
         "What the user's iPhone camera (SnapCam app) can do and how it is set now: lenses, zoom range, photo " +
-        'sizes, flash modes, the live lens/zoom/flash, and how many phone-shot photos wait in the Mac inbox. ' +
+        'sizes, flash modes, the live lens/zoom/flash, and how many phone-shot photos wait in the tray above the prompt. ' +
         'Shoots nothing.',
       inputSchema: { type: 'object', properties: {} },
       isDeferred: false,
     })
     await $.tool.register({
-      name: 'take_inbox',
+      name: 'recent_photos',
       description:
-        "Take photos the user shot with the SnapCam iPhone app's own shutter; they wait in the Mac's inbox. " +
-        `Returns up to count of them (default all, at most ${TAKE_MAX}), oldest first, as images with their paths ` +
-        '(2400 px copies; originals stay in the SnapCam save folder, default ~/Pictures/SnapCam/Default). ' +
-        'Taken photos leave the inbox, and ' +
-        'photos the user already attached from the tray are gone from it.',
+        'The last photos from the SnapCam history (the save folder of SnapCam for Mac), whatever took them: the ' +
+        `iPhone app's own shutter, the Mac app or take_photo. Returns up to count (default 1, at most ${RECENT_MAX}), ` +
+        'newest first, as images with their paths (2400 px upright copies; originals stay in the save folder, ' +
+        'default ~/Pictures/SnapCam/Default). Use it when the user says they just took a photo. ' +
+        'Only reads: photos waiting in the tray above the prompt stay there. Works without the phone.',
       inputSchema: {
         type: 'object',
         properties: {
-          count: { type: 'integer', minimum: 1, maximum: TAKE_MAX, description: `How many; default all, at most ${TAKE_MAX}` },
+          count: {
+            type: 'integer',
+            minimum: 1,
+            maximum: RECENT_MAX,
+            description: `How many, newest first; default 1, at most ${RECENT_MAX}`,
+          },
         },
       },
       isDeferred: false,
@@ -619,10 +646,10 @@ export const register: Register = on => {
 
     return answer(frame($, lens, zoom))
   }).catch(hookFailed)
-  on('tool.call', { tool: `${TOOL_PREFIX}take_inbox` }, ($, e) => {
+  on('tool.call', { tool: `${TOOL_PREFIX}recent_photos` }, ($, e) => {
     const asked = Math.floor(Number((e as unknown as { count?: number }).count))
 
-    return answer(takeInbox($, asked >= 1 ? Math.min(asked, TAKE_MAX) : TAKE_MAX))
+    return answer(recentPhotos($, asked >= 1 ? Math.min(asked, RECENT_MAX) : 1))
   }).catch(hookFailed)
 
   on('command.run', { command: 'snap' }, async ($, e) => {
