@@ -109,51 +109,57 @@ export const contract = {
         "status" : "planned"
       },
       "exposure" : {
-        "status" : "planned"
+        "detail" : "`ev-` `ev0` `ev+`",
+        "status" : "available"
       },
       "flash" : {
-        "status" : "planned"
+        "detail" : "`flash` cycles; on = light",
+        "status" : "available"
       },
       "formatSize" : {
         "status" : "notApplicable"
       },
       "frameLens" : {
-        "status" : "planned"
+        "detail" : "`lens:*` buttons, live",
+        "status" : "available"
       },
       "frameZoom" : {
-        "status" : "planned"
+        "detail" : "`zoom-` `zoom+`, live",
+        "status" : "available"
       },
       "inbox" : {
-        "detail" : "tray",
-        "next" : "gallery",
+        "detail" : "tray, gallery `inbox:*`",
         "status" : "available"
       },
       "light" : {
-        "status" : "planned"
+        "detail" : "`light` steps",
+        "status" : "available"
       },
       "liveVideo" : {
-        "detail" : "few fps",
-        "status" : "planned"
+        "detail" : "`live`, 5 fps",
+        "status" : "available"
       },
       "pairing" : {
         "status" : "notApplicable"
       },
       "peek" : {
-        "status" : "planned"
+        "detail" : "live video instead",
+        "status" : "notApplicable"
       },
       "readText" : {
         "status" : "planned"
       },
       "recent" : {
-        "detail" : "gallery",
-        "status" : "planned"
+        "detail" : "gallery `recent:*`",
+        "status" : "available"
       },
       "shoot" : {
-        "detail" : "button",
-        "status" : "planned"
+        "detail" : "`shoot`, `camera` picks the source",
+        "status" : "available"
       },
       "state" : {
-        "status" : "planned"
+        "detail" : "`status` line",
+        "status" : "available"
       }
     },
     "cli" : {
@@ -190,7 +196,8 @@ export const contract = {
         "status" : "available"
       },
       "liveVideo" : {
-        "status" : "notApplicable"
+        "detail" : "`live --fps --png`",
+        "status" : "available"
       },
       "pairing" : {
         "detail" : "`pair`",

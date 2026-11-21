@@ -3,6 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { contract } from '../contract.ts'
+import { fakePaneMac, openPane } from './pane.fake.ts'
 
 type Spec = { name: string; inputSchema?: { properties?: Record<string, unknown> } }
 type Cell = { status: string; detail?: string }
@@ -612,4 +613,28 @@ test('ask_photo passes the question and denies with the reason when Apple Intell
   const denied = (await $.tool.call({ tool: 'mcp__snap-cam__ask_photo', path: '/D/a.heic' } as never)) as unknown as Done
   expect(runs.at(-1)).toEqual([CLI, 'ask', '/D/a.heic', '--json'])
   expect(denied.deny).toBe('SnapCam: Apple Intelligence is off.')
+})
+
+// Each backticked word of a working pane cell is a control key; `x:*` a prefix.
+test('every Claude pane cell that works names real pane controls', async ($, on) => {
+  const clock = mock.clock(on)
+  fakePaneMac(on, () => true)
+  const ui = await openPane($)
+  await clock.advance(3000)
+  const keys = new Set((await ui.findAll({})).flatMap(found => (found.key ? [found.key] : [])))
+  await ui.press({ key: 'tab:gallery' })
+  for (const found of await ui.findAll({})) if (found.key) keys.add(found.key)
+  await ui.unmount()
+
+  const cells = contract.cells.claudePane as Record<string, { status: string; detail?: string }>
+  const working = Object.entries(cells).filter(([, cell]) => cell.status === 'available')
+  expect(working.length).toBeGreaterThan(5)
+  for (const [command, cell] of working) {
+    const words = [...(cell.detail ?? '').matchAll(/`([^`]+)`/g)].flatMap(m => (m[1] ?? '').split(/[\s,]+/).filter(Boolean))
+    expect({ command, named: words.length > 0 }).toEqual({ command, named: true })
+    for (const word of words) {
+      const found = word.endsWith('*') ? [...keys].some(k => k.startsWith(word.slice(0, -1))) : keys.has(word)
+      expect({ command, word, found }).toEqual({ command, word, found: true })
+    }
+  }
 })

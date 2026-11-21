@@ -10,10 +10,11 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.9.1) |
-| `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.10.0) |
+| `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API); imports `cli.ts` (CLI helpers, `shoot`) and `live.tsx` (the pane) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}` |
 | `README.md` | user-facing summary |
+| `hooks/pane.test.tsx`, `hooks/pane.fake.ts` | pane tests over a fake CLI with a fake `live` stream |
 | `contract.ts` + `hooks/contract.test.ts` | generated camera contract (ADR 0003); `claude plugin test .` checks every ✅ MCP cell names registered tools and inputs, plus the inbox tray and `recent_photos` against a fake CLI |
 
 Runtime state (outside the repo): `~/Library/Application Support/snap-cam/`
@@ -112,6 +113,27 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   lens/zoom, size>}, {type:'image'}]`.
 - **`/snap iphone|continuity|desk|mac|list|caps|status|pair`**.
 
+- **SnapCam pane** (0.10.0, board card 7; `hooks/live.tsx`): `/snap pane` or the band's
+  `🎥 Панель` opens pane `snap-live`. A 1 s clock (`tick`, interactive sessions) checks
+  `$.ui.panes()`: while it is shown and placed with tab `camera`, one long-lived
+  `$.process.spawn` of `snapcam-cli live --preview-dir <dir>/live --preview-size 640 --fps 5
+  --json [--png] [--source S]` runs; anything else ends the loop, which kills the child
+  (also `ui.close`). The CLI loops held `peek`s (`LocalPeekRequest.hold`): the Mac app keeps
+  the iPhone stream on for 3 s past the last one and answers from `VideoTap` (decodes every
+  frame while held, encodes the next one on request), no phone round trip; Mac cameras stay
+  warm between peeks. Each frame: `live.jpg` (+ `live.png` with `--png`) written atomically
+  and one JSON line. Desktop/VS Code redraw per frame (`Svg` data URI, skipped over 131072
+  chars); a terminal-only session blits the keyed `Image` and redraws only when the words
+  change. Controls run `frame --lens|--zoom`, `flash`, `light`, `exposure` with `--json` and
+  take the framing from the answer; `state --json` fills them on open. `📸 Снять` is
+  `snapToTray` (tray, no delay). Gallery tab (video paused): `inbox` atom (everything the
+  poll lists) toggles `dismissed`; `recent 8 --json` (no previews; sips thumbs once per
+  original, every 15 s while shown) toggles a sips 2400 px copy `recent-<name>.jpg` in
+  `pending`. Pane cells of ADR 0003 name control keys; `contract.test.ts` checks each against
+  the drawn tree (`x:*` = prefix).
+  Atoms must be declared in the file that reads them (validate), and `$` can't go through an
+  object of helpers: shared code is imported from `cli.ts`.
+
 ## Facts established on this Mac (MacBook Pro + iPhone)
 
 Found with the old helper (removed in 0.9.1); SnapCam for Mac's `MacCamera` builds on them:
@@ -181,6 +203,11 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 
 ## Open / unverified
+
+- 0.10.0 pane: checked with `claude plugin test` (fake CLI + fake `live` stream) and the
+  branch CLI's error lines; not yet seen in the app, nor with a phone. Needs the snapcam-app
+  `feat/claude-pane` build (CLI `live`, app `hold`); an older CLI answers 64 and the pane
+  shows that error. Terminal blit path untested on a real terminal.
 
 - 0.9.1 (branches `feat/mac-sources` here and in snapcam-app): helper and Continuity fallback
   removed; every camera via `capture --source`. Checked with `claude plugin test` (fake CLI)
