@@ -182,6 +182,10 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 ## Open / unverified
 
+- 0.9.2 (branches `feat/shot-latency` here and in snapcam-app): `take_photo` note shows stage
+  timings (shutter, processed, on Mac, cli, total) and says when the original is still arriving
+  (protocol 8 preview first); contract gains `capture --quality`. Checked with `claude plugin
+  test` (fake CLI) and the app's unit tests; preview first and the timings need the iPhone.
 - 0.9.1 (branches `feat/mac-sources` here and in snapcam-app): helper and Continuity fallback
   removed; every camera via `capture --source`. Checked with `claude plugin test` (fake CLI)
   and the app's unit tests; Mac cameras not yet run on the real Mac (Continuity, Desk View,

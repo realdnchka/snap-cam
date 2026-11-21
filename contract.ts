@@ -170,7 +170,7 @@ export const contract = {
         "status" : "available"
       },
       "formatSize" : {
-        "detail" : "`capture --format --size`",
+        "detail" : "`capture --format --size --quality`",
         "status" : "available"
       },
       "frameLens" : {
@@ -443,7 +443,7 @@ export const contract = {
     },
     {
       "id" : "formatSize",
-      "title" : "format / size"
+      "title" : "format / size / quality"
     },
     {
       "id" : "pairing",

@@ -84,6 +84,20 @@ type Block =
 type PhoneJson = {
   original?: string; preview?: string; width?: number; height?: number; format?: string
   lens?: string; zoom?: number; phone?: string; ms?: number; error?: string
+  originalPending?: boolean; timings?: Record<string, number>
+}
+
+// Stage timings for the note: phone shutter and processing, Mac reply, CLI and mod totals.
+function timingNote(json: Partial<PhoneJson>, modMs: number): string {
+  const t = json.timings ?? {}
+  const parts = [
+    t.phoneShutter !== undefined ? `shutter ${t.phoneShutter}` : '',
+    t.phoneProcessed !== undefined ? `processed ${t.phoneProcessed}` : '',
+    t.macReady !== undefined ? `on Mac ${t.macReady}` : '',
+    t.cliTotal !== undefined ? `cli ${t.cliTotal}` : '',
+    `total ${modMs}`,
+  ].filter(Boolean)
+  return `${parts.join(', ')} ms`
 }
 
 async function paths($: EngineInterface): Promise<Paths> {
@@ -443,10 +457,11 @@ const times = (zoom: number) => `${Number(zoom.toFixed(1))}×`
 
 // Every camera goes through SnapCam for Mac; a numeric delay shoots by itself.
 async function shoot($: EngineInterface, mode: SnapMode, shot: Shot): Promise<Taken> {
+  const started = await $.clock.now()
   const p = await paths($)
   const cli = await findCli($, p)
   if (!cli) throw new Error(INSTALL)
-  const out = `${p.snaps}/${mode}-${stamp(await $.clock.now())}.jpg`
+  const out = `${p.snaps}/${mode}-${stamp(started)}.jpg`
   await $.process.run(['mkdir', '-p', p.snaps])
   await $.fs.write(`${p.dir}/last-mode.txt`, mode)
   const { source, title } = SOURCES[mode]
@@ -470,7 +485,8 @@ async function shoot($: EngineInterface, mode: SnapMode, shot: Shot): Promise<Ta
   const note =
     `${json.phone ?? 'camera'} (${title}): ${json.width}×${json.height} ${json.format ?? ''}, ` +
     `${lens}${json.zoom !== undefined ? ` ${times(json.zoom)}` : ''}${lensNote}, ` +
-    `${json.ms ?? '?'} ms. Original: ${json.original}`
+    `${timingNote(json, (await $.clock.now()) - started)}. Original: ${json.original}` +
+    (json.originalPending ? ' (still arriving from the iPhone)' : '')
 
   return { path: json.preview, note }
 }

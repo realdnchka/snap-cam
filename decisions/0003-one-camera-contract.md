@@ -79,7 +79,7 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 | state / caps | ✅ | ✅ | — | 🔜 | ✅ `state`, `caps`, `status` | ✅ `camera_state` | — |
 | inbox | — (phone shots go to history; the queue is for Claude) | ✅ offline queue (unsent shots) | — (sends) | ✅ tray; 🔜 gallery | ✅ `inbox`, `inbox --take --id` | — (tray only) | 🔜 |
 | recent photos | ✅ history grid | — (last photo only) | — | 🔜 gallery | ✅ `recent` | ✅ `recent_photos count` | 🔜 |
-| format / size | ✅ inspector | — | — | — | ✅ `capture --format --size` | — (Mac default) | — |
+| format / size / quality | ✅ inspector | — | — | — | ✅ `capture --format --size --quality` | — (Mac default) | — |
 | pair / forget | ✅ | ✅ | — | — | ✅ `pair` | — | — |
 | read text | ✅ history: Read Text | — (the Mac reads) | — | 🔜 | ✅ `ocr`, `ocr --recent` | ✅ `read_text path recent` | ✅ «Read Text in Photo» |
 | ask about a photo | ✅ history: Ask | — (the Mac answers) | — | 🔜 | ✅ `ask --question`, `ask --recent` | ✅ `ask_photo question path recent` | 🔜 |
