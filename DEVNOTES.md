@@ -9,11 +9,12 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.3) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.7) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing}` |
 | `helper/SnapCam.swift` + `helper/Info.plist` | the Continuity/Desk View helper, built on first use |
 | `README.md` | user-facing summary |
+| `contract.ts` + `hooks/contract.test.ts` | generated camera contract (ADR 0003); `claude plugin test .` checks MCP cells against `take_photo` |
 
 Runtime state (outside the repo): `~/Library/Application Support/snap-cam/`
 — `SnapCam.app`, `built.swift` (copy of the source it was built from), `mc/` (module cache),
@@ -135,6 +136,10 @@ On every change:
    `claude plugin update snap-cam@snapcam --scope project`
    (outside the sandbox: it writes `~/.claude/plugins`);
 4. tell the user open sessions need `/reload-plugins`.
+
+After a contract change in snapcam-app (`SnapCamKit/Contract.swift`), regenerate from its
+package folder: `swift run snapcam-cli contract --ts > ~/Dev/snapcam/snap-cam/contract.ts`,
+copy the `--markdown` block into ADR 0003, then `claude plugin test ~/Dev/snapcam/snap-cam`.
 
 
 ## Open / unverified

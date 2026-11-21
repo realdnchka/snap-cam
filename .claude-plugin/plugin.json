@@ -1,6 +1,6 @@
 {
   "name": "snap-cam",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "description": "One-click photo from iPhone (SnapCam iPhone app or Continuity Camera) or Desk View into the chat",
   "types": "./types/index.d.ts"
 }

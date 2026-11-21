@@ -59,21 +59,27 @@ model input use raw frames or real photos.
 
 ## Tool matrix
 
+Generated (amended 2026-11-21): the source of truth is `SnapCamKit/Contract.swift`; it
+renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdown`) and to
+`contract.ts` in this repo (`--ts`; `--json` for other tools). Copy for readers:
+
+<!-- contract:begin -->
 ✅ works now · 🔜 planned · — not applicable
 
 | Command | Mac app | iPhone screen | Camera Control | Claude pane | CLI | MCP | App Intents |
-|---|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- | --- |
 | shoot | ✅ | 🔜 | 🔜 full press | 🔜 button | ✅ `capture` | ✅ `take_photo` | 🔜 «Снять фото» |
-| frame: lens | ✅ inspector | 🔜 | via zoom | 🔜 | ✅ `--lens` | ✅ per shot; 🔜 `frame` | 🔜 |
-| frame: zoom | ✅ inspector | 🔜 pinch | 🔜 system slider | 🔜 | ✅ `--zoom` | ✅ per shot; 🔜 `frame` | 🔜 |
-| flash | ✅ inspector | 🔜 | 🔜 picker | 🔜 | ✅ `--flash` | ✅ | 🔜 |
+| frame: lens | ✅ inspector | 🔜 | — (via zoom) | 🔜 | ✅ `capture --lens` | ✅ `take_photo lens`; 🔜 `frame` | 🔜 |
+| frame: zoom | ✅ inspector | 🔜 pinch | 🔜 system slider | 🔜 | ✅ `capture --zoom` | ✅ `take_photo zoom`; 🔜 `frame` | 🔜 |
+| flash | ✅ inspector | 🔜 | 🔜 picker | 🔜 | ✅ `capture --flash` | ✅ `take_photo flash` | 🔜 |
 | exposure | 🔜 | 🔜 | 🔜 system slider | 🔜 | 🔜 | 🔜 | — |
 | live video | 🔜 stream | ✅ viewfinder | — | 🔜 few fps | — | — | — |
 | peek | 🔜 | — | — | 🔜 | 🔜 `peek` | 🔜 `peek` | — |
 | state / caps | ✅ | ✅ | — | 🔜 | ✅ `caps`, `status` | 🔜 `camera_state` | — |
 | inbox | 🔜 | — (sends) | — (sends) | ✅ tray; 🔜 gallery | 🔜 `inbox` | 🔜 `take_inbox` | 🔜 |
-| format / size | ✅ inspector | — | — | — | ✅ | — (Mac default) | — |
+| format / size | ✅ inspector | — | — | — | ✅ `capture --format --size` | — (Mac default) | — |
 | pair / forget | ✅ | ✅ | — | — | ✅ `pair` | — | — |
+<!-- contract:end -->
 
 ## Consequences
 
@@ -81,5 +87,6 @@ model input use raw frames or real photos.
 - The model can look (`peek`), adjust (`frame`) and shoot, like a person at the phone.
 - Wire protocol gains `frame`, `exposure`, `peek`, `live`, `state` events, a video
   stream and photo push with acks.
-- A conformance test keeps every surface honest (planned: the matrix is generated from
-  code, see board card `contract-test`).
+- A conformance test keeps every surface honest: SnapCamKit `ContractTests` (every cell
+  declared, docs current, CLI cells name real syntax) and `hooks/contract.test.ts` (MCP
+  cells name registered tools and `take_photo` inputs).
