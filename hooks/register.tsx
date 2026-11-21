@@ -324,7 +324,7 @@ export const register: Register = on => {
       return {
         result: [
           { type: 'text', text: `Photo saved: ${taken.path} (${taken.note})` },
-          { type: 'image', data: base64, mimeType: 'image/jpeg' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
         ],
       }
     } catch (error) {

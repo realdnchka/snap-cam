@@ -112,6 +112,8 @@ Photos: `~/Pictures/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
 
 - `tool.call` hook: the model's arguments are **on `e` itself** (beside `tool`), not
   `e.input`. Result must be a string or an array of blocks (not `{content}`).
+- Tool-result images must use the Messages API shape `{type:'image', source:{type:'base64', media_type, data}}`;
+  the MCP shape (`data`, `mimeType`) is dropped before the model (checked 0.8.4).
 - Give gating hooks a `.catch`; `next.error.{kind,message}` explains failures.
 - `$.process.run` time in flight doesn't count toward a hook's budget.
 - State values a drawing reads live in atoms declared in `types/index.d.ts`.
@@ -143,8 +145,6 @@ On every change:
 - Fallback cost: with the app installed but no phone, an iPhone shot waits ~3–8 s
   (plus app launch) before Continuity opens.
 
-- Image block in the `take_photo` result: shape accepted? does the model see the image?
-  (0.5.4 changed to array; not re-tested.)
 - 0.6.0 Fast Capture and 0.7.0 tray row + 🔍 preview pane: not seen in the app yet.
 - Hover-to-magnify was considered; a pane was chosen as more reliable on desktop.
 - Research notes: `~/Dev/snapcam/research/` (Mac↔iPhone APIs, Magnifier wrapper).
