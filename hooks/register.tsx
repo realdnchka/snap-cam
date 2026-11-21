@@ -26,6 +26,8 @@ const CLI_TIMEOUT_S = 25
 // User shots fire at once: they aim before pressing.
 const MANUAL_COUNTDOWN_S = 0
 const CLI_UNAVAILABLE = 69
+// Paired phone around but not connected after the app's ~10 s wait; nothing was shot.
+const CLI_OFFLINE = 75
 const SIDE = 2400
 
 const SNAP_PATH =/\/\S*\/Pictures\/ClaudeSnaps\/[\w.-]+\.jpg/g
@@ -45,6 +47,8 @@ type Paths = { dir: string; app: string; snaps: string; status: string; thumbs: 
 
 type Shot = { delay: string; flash?: Flash; lens?: Lens; zoom?: number }
 type Taken = { path: string; note: string }
+// Why the iPhone app path fell through to Continuity.
+type Skipped = { reason: string; offline: boolean }
 type PhoneJson = {
   original?: string; preview?: string; width?: number; height?: number; format?: string
   lens?: string; zoom?: number; phone?: string; ms?: number; error?: string
@@ -127,10 +131,10 @@ function parseJson(text: string): PhoneJson {
 
 const times = (zoom: number) => `${Number(zoom.toFixed(1))}×`
 
-// Shot through the SnapCam iPhone app; a string is why it fell through to Continuity.
-async function shootPhone($: EngineInterface, p: Paths, out: string, shot: Shot): Promise<Taken | string> {
+// Shot through the SnapCam iPhone app, or why it fell through to Continuity.
+async function shootPhone($: EngineInterface, p: Paths, out: string, shot: Shot): Promise<Taken | Skipped> {
   const cli = await findCli($, p)
-  if (!cli) return 'SnapCam for Mac is not installed'
+  if (!cli) return { reason: 'SnapCam for Mac is not installed', offline: false }
   const delay = shot.delay === 'manual' ? MANUAL_COUNTDOWN_S : Number(shot.delay)
   const argv = [cli, 'capture', '--json', '--delay', String(delay), '--timeout', String(CLI_TIMEOUT_S)]
   argv.push('--preview', out, '--preview-size', String(SIDE))
@@ -142,7 +146,8 @@ async function shootPhone($: EngineInterface, p: Paths, out: string, shot: Shot)
   const run = await $.process.run(argv, { timeoutMs: (CLI_TIMEOUT_S + delay + 30) * 1000 })
   const json = parseJson(run.stdout)
   const reason = json.error ?? (run.stderr.trim().replace(/^snapcam-cli: /, '') || `snapcam-cli exit ${run.exitCode}`)
-  if (run.exitCode === CLI_UNAVAILABLE) return reason
+  if (run.exitCode === CLI_UNAVAILABLE) return { reason, offline: false }
+  if (run.exitCode === CLI_OFFLINE) return { reason, offline: true }
   if (run.exitCode !== 0 || !json.preview) throw new Error(reason)
   const note =
     `${json.phone ?? 'iPhone'} (SnapCam iPhone app): ${json.width}×${json.height} ${json.format ?? ''}, ` +
@@ -152,15 +157,21 @@ async function shootPhone($: EngineInterface, p: Paths, out: string, shot: Shot)
   return { path: json.preview, note }
 }
 
+function fallbackCause(skipped: Skipped): string {
+  return skipped.offline
+    ? `Приложение SnapCam на iPhone сопряжено, но не подключилось к Mac (${skipped.reason})`
+    : `Приложение SnapCam на iPhone недоступно (${skipped.reason})`
+}
+
 // A numeric delay shoots by itself; throws with a reason.
 async function shoot($: EngineInterface, mode: SnapMode, shot: Shot): Promise<Taken> {
   const p = await paths($)
   const out = `${p.snaps}/${mode}-${stamp(await $.clock.now())}.jpg`
   await $.fs.write(`${p.dir}/last-mode.txt`, mode)
-  let fellBack = ''
+  let fellBack: Skipped | null = null
   if (mode === 'iphone') {
     const phone = await shootPhone($, p, out, shot)
-    if (typeof phone !== 'string') {
+    if ('path' in phone) {
       await makeThumb($, p, phone.path)
       return phone
     }
@@ -172,11 +183,14 @@ async function shoot($: EngineInterface, mode: SnapMode, shot: Shot): Promise<Ta
   const zoom = shot.zoom !== undefined ? String(Math.min(Math.max(shot.zoom, 1), 3)) : undefined
   const extra = zoom ? [shot.flash ?? '', zoom] : shot.flash ? [shot.flash] : []
   const said = await runHelper($, p, [mode, out, shot.delay], extra)
-  if (said !== out) throw new Error(said)
+  if (said !== out) {
+    const cancelled = said === 'Отменено'
+    throw new Error(fellBack && !cancelled ? `${fallbackCause(fellBack)}, а запасной путь через Continuity тоже не сработал: ${said}` : said)
+  }
   await makeThumb($, p, out)
   const shotFile = `${p.dir}/last-shot.txt`
   const flashNote = mode === 'iphone' && (await $.fs.exists(shotFile)) ? `; ${await $.fs.read(shotFile)}` : ''
-  const how = mode === 'desk' ? 'Desk View' : `Continuity Camera, because: ${fellBack}`
+  const how = mode === 'desk' ? 'Desk View' : `Continuity Camera, because${fellBack?.offline ? ' the paired iPhone app did not reconnect' : ''}: ${fellBack?.reason ?? '?'}`
   const zoomNote = zoom ? `; crop zoom ${times(Number(zoom))}` : ''
   const lensNote = shot.lens ? '; lens ignored' : ''
 

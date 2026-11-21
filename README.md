@@ -23,8 +23,10 @@ command-line client `SnapCam.app/Contents/Helpers/snapcam-cli` (or `$SNAPCAM_CLI
 - the phone shoots at once (its screen shows the framing); the original (HEIC, up to the
   phone's max size, e.g. 48 MP) stays in `~/Pictures/SnapCam`, an upright JPEG copy
   (long side ≤ 2400 px) goes to `~/Pictures/ClaudeSnaps/` for the chat;
-- the SnapCam app must be open on the iPhone; when no paired phone answers (exit 69), the
-  mod falls back to Continuity Camera as below;
+- the SnapCam app must be open on the iPhone; the Mac app waits up to ~10 s for a paired
+  phone that is reconnecting. When no paired phone answers (exit 69) or a paired one
+  didn't reconnect in time (exit 75), the mod falls back to Continuity Camera as below
+  and says why; if Continuity fails too, the error names both causes;
 - `/snap caps` — what the phone's camera can do; `/snap status`; `/snap pair` — opens
   pairing on the Mac and prints the code.
 

@@ -23,10 +23,66 @@ func loadFlash() -> String {
     return flashModes.contains(v ?? "") ? v! : "off"
 }
 
-func finish(_ code: Int32, _ msg: String) -> Never {
+// Likely cause when Continuity gives only black placeholder frames; macOS doesn't say why.
+let continuityBlocked = "Continuity Camera не запустилась: macOS не дала камере iPhone канал Wi‑Fi "
+    + "(обычно мешает Sidecar — iPad как второй экран, или режим модема). "
+    + "Отключи Sidecar или сними через приложение SnapCam на iPhone."
+
+// Diagnostics for a failed run: where it stopped and what the camera looked like.
+var step = "поиск камеры"
+var diagDevice: AVCaptureDevice?
+var diagSession: AVCaptureSession?
+var framesSeen = 0
+var brightFrames = 0
+
+func describe(_ error: Error?) -> String {
+    guard let e = error as NSError? else { return "" }
+    var text = "\(e.domain) \(e.code)"
+    if let under = e.userInfo[NSUnderlyingErrorKey] as? NSError { text += " ← \(under.domain) \(under.code)" }
+    return text
+}
+
+func errorChain(_ error: Error?) -> String {
+    var lines: [String] = []
+    var next = error as NSError?
+    while let e = next {
+        lines.append("\(e.domain) \(e.code) \(e.userInfo)")
+        next = e.userInfo[NSUnderlyingErrorKey] as? NSError
+    }
+    return lines.joined(separator: " ← ")
+}
+
+func logDebug(_ code: Int32, _ msg: String, _ error: Error?) {
+    var fields = ["exit=\(code)", "step=\(step)"]
+    if let d = diagDevice {
+        fields += ["device=\(d.localizedName)", "type=\(d.deviceType.rawValue)", "connected=\(d.isConnected)"]
+        if #available(macOS 14.0, *) { fields.append("suspended=\(d.isSuspended)") }
+    }
+    fields += ["running=\(diagSession?.isRunning ?? false)", "frames=\(framesSeen)", "bright=\(brightFrames)"]
+    let line = "\(ISO8601DateFormatter().string(from: Date())) \(fields.joined(separator: " ")) msg=\(msg)"
+        + (error.map { " error=\(errorChain($0))" } ?? "") + "\n"
+    let path = "\(stateDir)/debug.log"
+    try? FileManager.default.createDirectory(atPath: stateDir, withIntermediateDirectories: true)
+    if let h = FileHandle(forWritingAtPath: path) {
+        h.seekToEndOfFile()
+        h.write(Data(line.utf8))
+        h.closeFile()
+    } else {
+        try? line.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+}
+
+func finish(_ code: Int32, _ msg: String, _ error: Error? = nil) -> Never {
+    if code != 0, msg != "Отменено" { logDebug(code, msg, error) }
     try? msg.write(toFile: statusPath, atomically: true, encoding: .utf8)
     FileHandle.standardError.write((msg + "\n").data(using: .utf8)!)
     exit(code)
+}
+
+// Failure with the step and error code appended, e.g. «(шаг: снимок; NSOSStatusErrorDomain 2)».
+func fail(_ code: Int32, _ msg: String, _ error: Error? = nil) -> Never {
+    let detail = describe(error)
+    finish(code, "\(msg) (шаг: \(step)\(detail.isEmpty ? "" : "; " + detail))", error)
 }
 
 // Zoom keeps the centred 1/zoom of the frame, per camera kind.
@@ -139,6 +195,9 @@ final class Snapper: NSObject, NSWindowDelegate, AVCapturePhotoCaptureDelegate, 
 
     func attach(_ d: AVCaptureDevice) {
         device = d
+        diagDevice = d
+        diagSession = session
+        watch(d)
         queue.async {
             let s = self.session
             s.stopRunning()
@@ -146,16 +205,24 @@ final class Snapper: NSObject, NSWindowDelegate, AVCapturePhotoCaptureDelegate, 
             s.inputs.forEach { s.removeInput($0) }
             s.outputs.forEach { s.removeOutput($0) }
             s.sessionPreset = isDesk(d) ? .high : .photo
-            guard let input = try? AVCaptureDeviceInput(device: d), s.canAddInput(input) else {
-                finish(3, "Не удалось открыть камеру «\(d.localizedName)»")
+            step = "открытие камеры"
+            let input: AVCaptureDeviceInput
+            do {
+                input = try AVCaptureDeviceInput(device: d)
+            } catch {
+                fail(3, "Не удалось открыть камеру «\(d.localizedName)»", error)
             }
+            guard s.canAddInput(input) else { fail(3, "Не удалось открыть камеру «\(d.localizedName)»") }
+            step = "настройка"
             s.addInput(input)
             self.usePhoto = !isDesk(d) && s.canAddOutput(self.photo)
             if self.usePhoto { s.addOutput(self.photo) }
             if s.canAddOutput(self.video) { s.addOutput(self.video) }
             s.commitConfiguration()
             if self.usePhoto { self.pickBiggestPhotoFormat() }
+            step = "запуск"
             s.startRunning()
+            step = "превью"
             DispatchQueue.main.async {
                 self.updateOverlay()
                 // Warm-up lets exposure settle before an automatic shot.
@@ -164,6 +231,26 @@ final class Snapper: NSObject, NSWindowDelegate, AVCapturePhotoCaptureDelegate, 
                 }
             }
         }
+    }
+
+    // A runtime error or a lost device ends the run now, not at the shot.
+    func watch(_ d: AVCaptureDevice) {
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main) { [weak self] n in
+            guard let self, !self.done else { return }
+            let error = n.userInfo?[AVCaptureSessionErrorKey] as? Error
+            fail(8, self.looksBlocked() ? continuityBlocked : "Камера остановилась с ошибкой", error)
+        }
+        nc.addObserver(forName: AVCaptureDevice.wasDisconnectedNotification, object: d, queue: .main) { [weak self] _ in
+            guard let self, !self.done else { return }
+            fail(7, "Камера «\(d.localizedName)» отключилась — попробуй ещё раз")
+        }
+    }
+
+    // Continuity gave only black placeholder frames: the stream never really started.
+    func looksBlocked(after frames: Int = 1) -> Bool {
+        guard kind == "iphone", let device, isContinuity(device) else { return false }
+        return queue.sync { framesSeen >= frames && brightFrames == 0 }
     }
 
     func countdown(_ n: Int) {
@@ -317,9 +404,12 @@ final class Snapper: NSObject, NSWindowDelegate, AVCapturePhotoCaptureDelegate, 
         guard !done else { return }
         done = true
         window.title = "Снимаю…"
+        // Fewer black frames may be a slow start, not a block.
+        if looksBlocked(after: 20) { fail(9, continuityBlocked) }
+        step = "снимок"
         if usePhoto {
             guard let c = photo.connection(with: .video), c.isActive, c.isEnabled, session.isRunning else {
-                finish(7, "Камера отключилась — нажми ещё раз")
+                fail(7, "Камера отключилась — нажми ещё раз")
             }
             syncPhotoDimensions()
             let jpeg = photo.availablePhotoCodecTypes.contains(.jpeg)
@@ -334,24 +424,48 @@ final class Snapper: NSObject, NSWindowDelegate, AVCapturePhotoCaptureDelegate, 
     }
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto p: AVCapturePhoto, error: Error?) {
-        guard let data = p.fileDataRepresentation(), saveJPEG(data, zoom: zoom) else {
-            finish(4, "Снимок не получился: \(error?.localizedDescription ?? "нет данных")")
+        guard let data = p.fileDataRepresentation() else {
+            if error != nil, looksBlocked() { fail(4, continuityBlocked, error) }
+            fail(4, "Снимок не получился: \(error?.localizedDescription ?? "нет данных")", error)
         }
+        step = "сохранение"
+        guard saveJPEG(data, zoom: zoom) else { fail(4, "Снимок не сохранился в \(outPath)") }
         try? "flash requested=\(flash) sent=\(sentFlash)".write(toFile: "\(stateDir)/last-shot.txt", atomically: true, encoding: .utf8)
         finish(0, outPath)
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput buffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        guard wantFrame, let px = CMSampleBufferGetImageBuffer(buffer) else { return }
+        guard let px = CMSampleBufferGetImageBuffer(buffer) else { return }
+        framesSeen += 1
+        if brightFrames == 0, framesSeen % 5 == 1, !isBlack(px) { brightFrames += 1 }
+        guard wantFrame else { return }
         wantFrame = false
+        step = "сохранение"
         let ci = CIImage(cvPixelBuffer: px)
         guard let cg = CIContext().createCGImage(ci, from: centreCrop(ci.extent, zoom)), writeJPEG(capped(cg)) else {
-            finish(4, "Кадр не сохранился")
+            fail(4, "Кадр не сохранился")
         }
         finish(0, outPath)
     }
 
     func windowWillClose(_ notification: Notification) { finish(1, "Отменено") }
+}
+
+// Samples an 8×8 grid of a BGRA frame; the disabled-stream placeholder is all zeros.
+func isBlack(_ px: CVPixelBuffer) -> Bool {
+    guard CVPixelBufferGetPixelFormatType(px) == kCVPixelFormatType_32BGRA else { return false }
+    CVPixelBufferLockBaseAddress(px, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(px, .readOnly) }
+    guard let base = CVPixelBufferGetBaseAddress(px) else { return false }
+    let w = CVPixelBufferGetWidth(px), h = CVPixelBufferGetHeight(px), row = CVPixelBufferGetBytesPerRow(px)
+    let bytes = base.assumingMemoryBound(to: UInt8.self)
+    for y in 0..<8 {
+        for x in 0..<8 {
+            let o = (h * (2 * y + 1) / 16) * row + (w * (2 * x + 1) / 16) * 4
+            if max(bytes[o], bytes[o + 1], bytes[o + 2]) > 6 { return false }
+        }
+    }
+    return true
 }
 
 final class KeyView: NSView {

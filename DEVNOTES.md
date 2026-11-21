@@ -9,7 +9,7 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.0) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.3) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing}` |
 | `helper/SnapCam.swift` + `helper/Info.plist` | the Continuity/Desk View helper, built on first use |
@@ -17,7 +17,8 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 Runtime state (outside the repo): `~/Library/Application Support/snap-cam/`
 — `SnapCam.app`, `built.swift` (copy of the source it was built from), `mc/` (module cache),
-`last.status` (helper's answer), `{desk,iphone}-zoom.txt`, `flash.txt`, `last-mode.txt`,
+`last.status` (helper's answer), `debug.log` (one line per helper failure, 0.8.3+),
+`{desk,iphone}-zoom.txt`, `flash.txt`, `last-mode.txt`,
 `last-shot.txt` (flash requested/sent), `thumbs/`, `previews/` (+ `.json` size sidecar).
 Photos: `~/Pictures/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
 
@@ -35,10 +36,16 @@ Photos: `~/Pictures/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   `~/Library/Application Support/SnapCam/control.sock`, launching the app if needed; the
   app owns pairing and the phone connection. `--preview` writes an upright JPEG (EXIF
   orientation applied, ImageIO). JSON: path, original, width/height (upright), format,
-  lens, zoom, phone, ms, preview. Exit 0 → the preview is the snap; **69** (no app /
-  not paired / phone app closed, decided before the shot is asked for) → Continuity
-  helper with the reason in the tool text; 1 (phone error, or a timeout or drop after the
-  shot was asked for: the phone may have shot) or other → `deny`. Band `📷 iPhone` uses
+  lens, zoom, phone, ms, preview. Before answering "no phone" the Mac app retries at once
+  and waits up to 10 s for a paired phone (snapcam-app `PhoneClient.waitForConnection`).
+  Exit 0 → the preview is the snap; **69** (no app / not paired / phone not around,
+  decided before the shot is asked for) → Continuity helper with the reason in the tool
+  text; **75** (0.8.3, snapcam-app `fix/session-race`: a paired phone is around or
+  answered within the last minute but didn't connect in the wait; nothing was shot) →
+  also Continuity, with «сопряжено, но не подключилось» as the reason; if the helper
+  then fails, the error starts with the iPhone-app cause and adds the Continuity one.
+  1 (phone error, or a timeout or drop after the shot was asked for: the phone may have
+  shot) or other → `deny`. Band `📷 iPhone` uses
   it with no countdown (the user aims first), Fast Capture likewise; busy = `phone` shows «снимает iPhone…». `/snap caps|status|pair` print the
   CLI's output; `pair` also brings up the Mac app's pairing sheet.
 - **Continuity shot flow** (`shoot` → `runHelper`): `ensureApp` rebuilds SnapCam when
@@ -49,6 +56,12 @@ Photos: `~/Pictures/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   `open` is deliberate: SnapCam must be its own app for its own camera TCC grant and for
   `NSCameraUseContinuityCameraDeviceType` (without it the iPhone is invisible).
   Result = contents of the status file (the out path on success, else a Russian error).
+  Errors end with «(шаг: <step>; <NSError domain> <code> ← <underlying>)»; steps: поиск
+  камеры, открытие камеры, настройка, запуск, превью, снимок, сохранение. Each failure
+  also appends a line to `debug.log`: time, exit, step, device name/type, connected,
+  suspended, session running, frames seen / frames with light, full NSError chain.
+  The helper stops early on `AVCaptureSession.runtimeErrorNotification` and on the
+  device's `wasDisconnectedNotification`.
 - **Tray → prompt**: `prompt.submit` appends `📷 <name>` lines to the text and a
   `context` note telling the model to `Read` the paths; `ui.render UserMessage` hides those
   lines and draws thumbnails + 🔍 instead.
@@ -84,6 +97,16 @@ Photos: `~/Pictures/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
 - Two SnapCam instances fight over the camera and one crashes in `capturePhoto` → the mod
   `pkill`s before launching; helper fails cleanly if the photo connection is inactive.
 - Every rebuild re-signs ad hoc → macOS may ask camera permission again.
+- **Sidecar blocks Continuity Camera** (2026-11-21 incident): with an iPad as a Sidecar
+  display, `wifip2pd` refuses the RemoteCamera Wi‑Fi reservation ("<Mac> is currently
+  using Sidecar"), ContinuityCaptureAgent leaves the device Disabled and feeds a black
+  placeholder buffer. AVFoundation reports nothing: input, session start and preview all
+  "work"; only `capturePhoto` fails with `NSOSStatusErrorDomain 2` ("The operation could
+  not be completed"). The reason never reaches public API. The helper therefore samples
+  frames (8×8 grid, BGRA, max channel ≤ 6 = black): a Continuity device with ≥ 20 frames
+  and none with light fails at the shot, and a capture error after only black frames,
+  both with «Continuity Camera не запустилась: … обычно мешает Sidecar … или режим
+  модема». A truly dark scene (lens covered) can trigger the same message.
 
 ## Mod API gotchas hit
 
@@ -112,6 +135,8 @@ On every change:
 
 ## Open / unverified
 
+- 0.8.3: exit 75 path and the helper's black-frame check not yet run on the device;
+  helper compiled with the mod's `swiftc` command only.
 - 0.8.0 iPhone app path: the CLI side was checked against the Simulator (capture with
   zoom + preview → 2400×1800 JPEG; exit 69 with the phone app closed); the mod itself not
   yet run in a session, and SnapCam for Mac is not yet installed in `~/Applications`.
