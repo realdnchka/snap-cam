@@ -26,7 +26,9 @@ Next come Camera Control, App Intents and the model steering the framing itself
 | `shoot(options)` | take a full-size photo now; it lands on the Mac |
 | `frame(lens?, zoom?)` | change the live framing without shooting |
 | `flash(mode)` | off / on / auto for the next shots |
-| `peek(size)` | small current frame, not saved — to check framing |
+| `exposure(bias)` | exposure compensation, EV |
+| `peek(size)` | one current frame, not saved — to check framing |
+| `live(on)` | preview video stream to the Mac while someone watches |
 | `state` | caps (lenses, zoom range, sizes) + current framing |
 | `inbox(n)` | photos shot from the phone, oldest first; taking them clears them |
 
@@ -40,26 +42,44 @@ The mod shows inbox photos in the tray above the prompt.
 Heavy work runs on the Mac; the phone runs only real-time viewfinder helpers (text or
 document highlight). A server is a later, separate decision.
 
+**Camera Control** (amended 2026-11-21): full press = `shoot`; on the button the system
+zoom slider (`frame`, lenses switch by themselves), a flash picker (`flash`) and the
+system exposure slider (`exposure`). Availability and slot count come from
+`supportsControls` / `maxControlsCount`. Lock-screen capture (`LockedCameraCapture`) feeds
+the inbox later.
+
+**Live video** (amended 2026-11-21): the phone sends one H.264/HEVC preview stream
+(VideoToolbox) only while a viewer is open. The Mac app shows it natively; the Claude
+pane gets a few frames per second from the Mac; `peek` is one frame. The Mac may enhance
+it for people (VideoToolbox low-latency super resolution, frame interpolation, noise
+filter, checked at run time). Enhanced pixels are for eyes only: `peek`, OCR and any
+model input use raw frames or real photos.
+
 **Continuity Camera** fallback is secondary; no new work on it beyond the helper's look.
 
 ## Tool matrix
 
 ✅ works now · 🔜 planned · — not applicable
 
-| Command | Mac app | iPhone screen | Camera Control | CLI | MCP `take_photo` & co | App Intents |
-|---|---|---|---|---|---|---|
-| shoot | ✅ | 🔜 | 🔜 press | ✅ `capture` | ✅ `take_photo` | 🔜 «Снять фото» |
-| frame: lens | ✅ inspector | 🔜 | 🔜 picker | ✅ `--lens` | ✅ per shot; 🔜 `frame` | 🔜 |
-| frame: zoom | ✅ inspector | 🔜 pinch | 🔜 slider | ✅ `--zoom` | ✅ per shot; 🔜 `frame` | 🔜 |
-| flash | ✅ inspector | 🔜 | — | ✅ `--flash` | ✅ | 🔜 |
-| peek | 🔜 live preview | ✅ viewfinder | — | 🔜 `peek` | 🔜 `peek` | — |
-| state / caps | ✅ | ✅ | — | ✅ `caps`, `status` | 🔜 `camera_state` | — |
-| inbox | 🔜 | — (sends) | — (sends) | 🔜 `inbox` | 🔜 `take_inbox` | 🔜 |
-| format / size | ✅ inspector | — | — | ✅ | — (Mac default) | — |
-| pair / forget | ✅ | ✅ | — | ✅ `pair` | — | — |
+| Command | Mac app | iPhone screen | Camera Control | Claude pane | CLI | MCP | App Intents |
+|---|---|---|---|---|---|---|---|
+| shoot | ✅ | 🔜 | 🔜 full press | 🔜 button | ✅ `capture` | ✅ `take_photo` | 🔜 «Снять фото» |
+| frame: lens | ✅ inspector | 🔜 | via zoom | 🔜 | ✅ `--lens` | ✅ per shot; 🔜 `frame` | 🔜 |
+| frame: zoom | ✅ inspector | 🔜 pinch | 🔜 system slider | 🔜 | ✅ `--zoom` | ✅ per shot; 🔜 `frame` | 🔜 |
+| flash | ✅ inspector | 🔜 | 🔜 picker | 🔜 | ✅ `--flash` | ✅ | 🔜 |
+| exposure | 🔜 | 🔜 | 🔜 system slider | 🔜 | 🔜 | 🔜 | — |
+| live video | 🔜 stream | ✅ viewfinder | — | 🔜 few fps | — | — | — |
+| peek | 🔜 | — | — | 🔜 | 🔜 `peek` | 🔜 `peek` | — |
+| state / caps | ✅ | ✅ | — | 🔜 | ✅ `caps`, `status` | 🔜 `camera_state` | — |
+| inbox | 🔜 | — (sends) | — (sends) | ✅ tray; 🔜 gallery | 🔜 `inbox` | 🔜 `take_inbox` | 🔜 |
+| format / size | ✅ inspector | — | — | — | ✅ | — (Mac default) | — |
+| pair / forget | ✅ | ✅ | — | — | ✅ `pair` | — | — |
 
 ## Consequences
 
 - New UI is a new row of buttons over existing commands, not new protocol.
 - The model can look (`peek`), adjust (`frame`) and shoot, like a person at the phone.
-- Wire protocol gains `frame`, `peek`, `state` events and photo push with acks.
+- Wire protocol gains `frame`, `exposure`, `peek`, `live`, `state` events, a video
+  stream and photo push with acks.
+- A conformance test keeps every surface honest (planned: the matrix is generated from
+  code, see board card `contract-test`).
