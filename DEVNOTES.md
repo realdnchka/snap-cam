@@ -137,9 +137,11 @@ On every change:
    (outside the sandbox: it writes `~/.claude/plugins`);
 4. tell the user open sessions need `/reload-plugins`.
 
-After a contract change in snapcam-app (`SnapCamKit/Contract.swift`), regenerate from its
-package folder: `swift run snapcam-cli contract --ts > ~/Dev/snapcam/snap-cam/contract.ts`,
-copy the `--markdown` block into ADR 0003, then `claude plugin test ~/Dev/snapcam/snap-cam`.
+After a contract change in snapcam-app (`SnapCamKit/Contract.swift`), run its
+`scripts/sync-contract.sh` (outside the sandbox; default target `~/Dev/snapcam/snap-cam`): it
+rewrites `contract.ts` and the ADR 0003 block, then checks both with the opt-in SnapCamKit
+test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). Then
+`claude plugin test ~/Dev/snapcam/snap-cam`.
 
 
 ## Open / unverified
