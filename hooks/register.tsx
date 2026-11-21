@@ -11,10 +11,21 @@ const phoneTray = atom({ plugin: 'snap-cam', key: 'phoneTray' } as const, [] as 
 const dismissed = atom({ plugin: 'snap-cam', key: 'dismissed' } as const, [] as string[])
 const PANE = 'snap-preview'
 
+// Band buttons; take_photo also takes continuity and mac.
 const MODES: { mode: SnapMode; label: string }[] = [
   { mode: 'iphone', label: '📷 iPhone' },
   { mode: 'desk', label: '🗂 DeskView' },
 ]
+
+// take_photo camera → snapcam-cli --source (ADR 0004).
+const SOURCES: Record<SnapMode, { source: string; title: string }> = {
+  iphone: { source: 'phone', title: 'SnapCam iPhone app' },
+  continuity: { source: 'continuity', title: 'Continuity Camera' },
+  desk: { source: 'deskView', title: 'Desk View' },
+  mac: { source: 'builtIn', title: "Mac's built-in camera" },
+}
+const CAMERAS = Object.keys(SOURCES) as SnapMode[]
+const INSTALL = 'SnapCam for Mac is not installed: build it from snapcam-app with scripts/install-mac.sh'
 
 type Flash = 'off' | 'on' | 'auto'
 type Lens = 'ultraWide' | 'wide' | 'telephoto'
@@ -27,9 +38,8 @@ const POLL_MS = 3000
 const POLL_MAX_TICKS = 10
 const RECENT_MAX = 5
 const CLI_USAGE = 64
-const PHONE_BUSY = 'phone'
 
-// snapcam-cli from SnapCam for Mac (repo snapcam-app); 69 = no app or no paired phone.
+// snapcam-cli from SnapCam for Mac (repo snapcam-app); 69 = no app, phone or camera.
 const CLI_IN_APP = 'SnapCam.app/Contents/Helpers/snapcam-cli'
 const CLI_TIMEOUT_S = 25
 // User shots fire at once: they aim before pressing.
@@ -44,24 +54,10 @@ const SNAP_PATH = /\/\S*\/Pictures\/(?:SnapCam\/)?ClaudeSnaps\/[\w.-]+\.jpg/g
 const SNAP_LINE = /^📷 ([\w.-]+\.jpg)$/gm
 const THUMB = 96
 
-const BUILD = [
-  'set -e',
-  'mkdir -p "$APP/Contents/MacOS"',
-  'swiftc -O -module-cache-path "$DIR/mc" -o "$APP/Contents/MacOS/SnapCam" "$SRC/SnapCam.swift"',
-  'cp "$SRC/Info.plist" "$APP/Contents/Info.plist"',
-  'codesign --force -s - "$APP"',
-  'cp "$SRC/SnapCam.swift" "$DIR/built.swift"',
-].join('\n')
-
-type Paths = {
-  dir: string; app: string; snaps: string; status: string; thumbs: string; staging: string; recent: string
-  home: string
-}
+type Paths = { dir: string; snaps: string; thumbs: string; staging: string; recent: string; home: string }
 
 type Shot = { delay: string; flash?: Flash; lens?: Lens; zoom?: number }
 type Taken = { path: string; note: string }
-// Why the iPhone app path fell through to Continuity.
-type Skipped = { reason: string; offline: boolean }
 type InboxJson = {
   items?: {
     id: string; original: string; preview?: string; width?: number; height?: number
@@ -92,9 +88,7 @@ async function paths($: EngineInterface): Promise<Paths> {
 
   return {
     dir,
-    app: `${dir}/SnapCam.app`,
     snaps: `${home}/Pictures/SnapCam/ClaudeSnaps`,
-    status: `${dir}/last.status`,
     thumbs: `${dir}/thumbs`,
     staging: `${dir}/inbox-staging`,
     recent: `${dir}/recent-staging`,
@@ -104,41 +98,11 @@ async function paths($: EngineInterface): Promise<Paths> {
 
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
-// Rebuilds when the shipped source differs from the last build.
-async function ensureApp($: EngineInterface, p: Paths): Promise<string | null> {
-  const src = `${$.plugin.root}/helper`
-  const fresh = await $.fs.read(`${src}/SnapCam.swift`)
-  const built = (await $.fs.exists(`${p.dir}/built.swift`))
-    ? await $.fs.read(`${p.dir}/built.swift`)
-    : ''
-  if (built === fresh && (await $.fs.exists(`${p.app}/Contents/MacOS/SnapCam`))) {
-    return null
-  }
-  $.ui.toast('SnapCam: собираю helper (один раз, ~20 с)…')
-  const run = await $.process.run(['/bin/sh', '-c', BUILD], {
-    env: { APP: p.app, DIR: p.dir, SRC: src },
-    timeoutMs: 300_000,
-  })
-
-  return run.exitCode === 0 ? null : `сборка не удалась: ${run.stderr.slice(-400)}`
-}
-
 function stamp(ms: number): string {
   const d = new Date(ms)
   const two = (n: number) => String(n).padStart(2, '0')
 
   return `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`
-}
-
-async function runHelper($: EngineInterface, p: Paths, args: string[], extra: string[] = []): Promise<string> {
-  await $.process.run(['rm', '-f', p.status])
-  // By path: SnapCam for Mac has the same executable name.
-  await $.process.run(['pkill', '-f', `${p.app}/Contents/MacOS/SnapCam`])
-  await $.process.run(['open', '-W', '-n', p.app, '--args', ...args, p.status, ...extra], {
-    timeoutMs: 600_000,
-  })
-
-  return (await $.fs.exists(p.status)) ? (await $.fs.read(p.status)).trim() : 'SnapCam не ответил'
 }
 
 async function makeThumb($: EngineInterface, p: Paths, photo: string, name = baseName(photo)): Promise<void> {
@@ -175,17 +139,17 @@ async function runCli($: EngineInterface, cli: string, args: string[], timeoutS 
 
 function cliFailure(run: Cli): string {
   const why =
-    run.exitCode === CLI_UNAVAILABLE ? 'SnapCam for Mac or the paired iPhone is not reachable'
+    run.exitCode === CLI_UNAVAILABLE ? 'SnapCam for Mac, the paired iPhone or that camera is not reachable'
     : run.exitCode === CLI_OFFLINE ? 'the paired iPhone did not connect in time'
-    : run.exitCode === CLI_USAGE ? 'bad arguments'
-    : 'the iPhone or the Mac app reported an error'
+    : run.exitCode === CLI_USAGE ? 'bad arguments (is SnapCam for Mac up to date?)'
+    : 'the camera or the Mac app reported an error'
 
   return `${why}: ${run.reason}`
 }
 
 async function needCli($: EngineInterface, p: Paths): Promise<string> {
   const cli = await findCli($, p)
-  if (!cli) throw new Error('SnapCam for Mac is not installed (snapcam-app: scripts/install-mac.sh)')
+  if (!cli) throw new Error(INSTALL)
 
   return cli
 }
@@ -393,17 +357,18 @@ async function light($: EngineInterface, level: number): Promise<Block[]> {
   return [{ type: 'text', text: `Light ${level > 0 ? 'set' : 'off'} (live; nothing shot): ${run.stdout.trim()}` }]
 }
 
-async function peek($: EngineInterface): Promise<Block[]> {
+async function peek($: EngineInterface, mode: SnapMode): Promise<Block[]> {
   const p = await paths($)
   const cli = await needCli($, p)
   const file = `${p.dir}/peek.jpg`
-  const run = await runCli($, cli, ['peek', '--preview', file, '--json'], 30)
+  const run = await runCli($, cli, ['peek', '--preview', file, '--json', '--source', SOURCES[mode].source], 30)
   if (run.exitCode !== 0) throw new Error(cliFailure(run))
   const json = parseJson<PeekJson>(run.stdout)
   const zoom = json.zoom !== undefined ? `, zoom ${times(json.zoom)}` : ''
+  const lens = mode === 'iphone' ? `, lens ${json.lens ?? 'auto'}` : ' (crop zoom)'
   const text =
-    `Viewfinder of ${json.phone ?? 'the iPhone'} now (not saved): ${json.width}×${json.height}, ` +
-    `lens ${json.lens ?? 'auto'}${zoom}.`
+    `Viewfinder of ${json.phone ?? SOURCES[mode].title} now (not saved): ${json.width}×${json.height}` +
+    `${lens}${zoom}.`
 
   return [{ type: 'text', text }, await imageBlock($, file)]
 }
@@ -418,78 +383,44 @@ async function cameraState($: EngineInterface): Promise<Block[]> {
 
 const times = (zoom: number) => `${Number(zoom.toFixed(1))}×`
 
-// Shot through the SnapCam iPhone app, or why it fell through to Continuity.
-async function shootPhone($: EngineInterface, p: Paths, out: string, shot: Shot): Promise<Taken | Skipped> {
-  const cli = await findCli($, p)
-  if (!cli) return { reason: 'SnapCam for Mac is not installed', offline: false }
-  const delay = shot.delay === 'manual' ? MANUAL_COUNTDOWN_S : Number(shot.delay)
-  const argv = [cli, 'capture', '--json', '--delay', String(delay), '--timeout', String(CLI_TIMEOUT_S)]
-  argv.push('--preview', out, '--preview-size', String(SIDE))
-  if (shot.lens) argv.push('--lens', shot.lens)
-  if (shot.zoom !== undefined) argv.push('--zoom', String(shot.zoom))
-  // Unset options use the Mac app's settings for the phone.
-  if (shot.flash) argv.push('--flash', shot.flash)
-  await update($, busy, () => PHONE_BUSY)
-  const run = await $.process.run(argv, { timeoutMs: (CLI_TIMEOUT_S + delay + 30) * 1000 })
-  const json = parseJson(run.stdout)
-  const reason = json.error ?? (run.stderr.trim().replace(/^snapcam-cli: /, '') || `snapcam-cli exit ${run.exitCode}`)
-  if (run.exitCode === CLI_UNAVAILABLE) return { reason, offline: false }
-  if (run.exitCode === CLI_OFFLINE) return { reason, offline: true }
-  if (run.exitCode !== 0 || !json.preview) throw new Error(reason)
-  const note =
-    `${json.phone ?? 'iPhone'} (SnapCam iPhone app): ${json.width}×${json.height} ${json.format ?? ''}, ` +
-    `lens ${json.lens ?? 'auto'}${json.zoom !== undefined ? `, zoom ${times(json.zoom)}` : ''}, ` +
-    `${json.ms ?? '?'} ms. Original: ${json.original}`
-
-  return { path: json.preview, note }
-}
-
-function fallbackCause(skipped: Skipped): string {
-  return skipped.offline
-    ? `Приложение SnapCam на iPhone сопряжено, но не подключилось к Mac (${skipped.reason})`
-    : `Приложение SnapCam на iPhone недоступно (${skipped.reason})`
-}
-
-// A numeric delay shoots by itself; throws with a reason.
+// Every camera goes through SnapCam for Mac; a numeric delay shoots by itself.
 async function shoot($: EngineInterface, mode: SnapMode, shot: Shot): Promise<Taken> {
   const p = await paths($)
+  const cli = await findCli($, p)
+  if (!cli) throw new Error(INSTALL)
   const out = `${p.snaps}/${mode}-${stamp(await $.clock.now())}.jpg`
   await $.process.run(['mkdir', '-p', p.snaps])
   await $.fs.write(`${p.dir}/last-mode.txt`, mode)
-  let fellBack: Skipped | null = null
-  if (mode === 'iphone') {
-    const phone = await shootPhone($, p, out, shot)
-    if ('path' in phone) {
-      await makeThumb($, p, phone.path)
-      return phone
-    }
-    fellBack = phone
-    await update($, busy, () => mode)
-  }
-  const err = await ensureApp($, p)
-  if (err) throw new Error(err)
-  const zoom = shot.zoom !== undefined ? String(Math.min(Math.max(shot.zoom, 1), 3)) : undefined
-  const extra = zoom ? [shot.flash ?? '', zoom] : shot.flash ? [shot.flash] : []
-  const said = await runHelper($, p, [mode, out, shot.delay], extra)
-  if (said !== out) {
-    const cancelled = said === 'Отменено'
-    throw new Error(fellBack && !cancelled ? `${fallbackCause(fellBack)}, а запасной путь через Continuity тоже не сработал: ${said}` : said)
-  }
-  await makeThumb($, p, out)
-  const shotFile = `${p.dir}/last-shot.txt`
-  const flashNote = mode === 'iphone' && (await $.fs.exists(shotFile)) ? `; ${await $.fs.read(shotFile)}` : ''
-  const how = mode === 'desk' ? 'Desk View' : `Continuity Camera, because${fellBack?.offline ? ' the paired iPhone app did not reconnect' : ''}: ${fellBack?.reason ?? '?'}`
-  const zoomNote = zoom ? `; crop zoom ${times(Number(zoom))}` : ''
-  const lensNote = shot.lens ? '; lens ignored' : ''
+  const { source, title } = SOURCES[mode]
+  const phone = mode === 'iphone'
+  const delay = shot.delay === 'manual' ? MANUAL_COUNTDOWN_S : Number(shot.delay)
+  const argv = [cli, 'capture', '--source', source, '--json', '--delay', String(delay), '--timeout', String(CLI_TIMEOUT_S)]
+  argv.push('--preview', out, '--preview-size', String(SIDE))
+  // Mac cameras have no lenses; zoom is a 1–3× crop there.
+  if (shot.lens && phone) argv.push('--lens', shot.lens)
+  if (shot.zoom !== undefined) argv.push('--zoom', String(shot.zoom))
+  // Unset options use the Mac app's settings for that camera.
+  if (shot.flash) argv.push('--flash', shot.flash)
+  const run = await $.process.run(argv, { timeoutMs: (CLI_TIMEOUT_S + delay + 30) * 1000 })
+  const json = parseJson(run.stdout)
+  const reason = json.error ?? (run.stderr.trim().replace(/^snapcam-cli: /, '') || `snapcam-cli exit ${run.exitCode}`)
+  if (run.exitCode !== 0 || !json.preview) throw new Error(cliFailure({ exitCode: run.exitCode, stdout: run.stdout, reason }))
+  await makeThumb($, p, json.preview)
+  const lens = phone ? `lens ${json.lens ?? 'auto'}` : 'crop zoom'
+  const lensNote = shot.lens && !phone ? '; lens ignored' : ''
+  const note =
+    `${json.phone ?? 'camera'} (${title}): ${json.width}×${json.height} ${json.format ?? ''}, ` +
+    `${lens}${json.zoom !== undefined ? ` ${times(json.zoom)}` : ''}${lensNote}, ` +
+    `${json.ms ?? '?'} ms. Original: ${json.original}`
 
-  return { path: out, note: `${how}${zoomNote}${lensNote}${flashNote}` }
+  return { path: json.preview, note }
 }
 
 async function lastMode($: EngineInterface): Promise<SnapMode> {
   const file = `${(await paths($)).dir}/last-mode.txt`
   const saved = (await $.fs.exists(file)) ? (await $.fs.read(file)).trim() : ''
 
-  return saved === 'desk' ? 'desk' : 'iphone'
+  return CAMERAS.find(mode => mode === saved) ?? 'iphone'
 }
 
 async function snapToTray($: EngineInterface, mode: SnapMode, delay = 'manual'): Promise<string> {
@@ -574,36 +505,42 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'snap',
-      description: 'Photo from iPhone or Desk View, attached to the next prompt',
-      argumentHint: 'iphone | desk | list | caps | status | pair',
+      description: 'Photo from iPhone, Desk View or a Mac camera, attached to the next prompt',
+      argumentHint: 'iphone | continuity | desk | mac | list | caps | status | pair',
     })
     await $.tool.register({
       name: 'take_photo',
       description:
-        "Take a photo with the user's iPhone or the Desk View camera on their Mac and get the image back. " +
-        'iPhone: when the SnapCam app is open on a paired iPhone, it shoots full resolution there ' +
-        '(real lens and zoom; the original stays on the Mac, you get a 2400 px copy). Otherwise it falls ' +
-        'back to Continuity Camera: a preview window opens on the Mac and shoots by itself after a ~1.5 s ' +
-        'warm-up plus delay_seconds (zoom becomes a 1–3× crop, lens is ignored; Esc cancels). ' +
-        'Unless the phone sits on a stand, tell the user what to point it at and give them a few seconds. ' +
+        "Take a photo through SnapCam for Mac and get the image back. camera: iphone (default) = the SnapCam " +
+        'app on a paired iPhone, full resolution with real lenses and zoom; continuity = the iPhone as ' +
+        "Continuity Camera; desk = Desk View (top-down); mac = the Mac's built-in camera. Mac cameras " +
+        '(continuity, desk, mac) give a plain photo: zoom is a 1–3× crop, no lens, flash only where the ' +
+        'device has one. The original stays on the Mac, you get a 2400 px copy. ' +
+        'Unless the camera sits on a stand, tell the user what to point it at and give them a few seconds. ' +
         'Shoot only when the user allows it; to check the framing first, use peek and frame, which shoot nothing. ' +
         'For a photo the user already took, use recent_photos.',
       inputSchema: {
         type: 'object',
         properties: {
-          camera: { type: 'string', enum: ['iphone', 'desk'], description: 'iphone or desk (Desk View, top-down)' },
+          camera: {
+            type: 'string',
+            enum: CAMERAS,
+            description: 'iphone (SnapCam app, default), continuity, desk (Desk View, top-down) or mac (built-in)',
+          },
           delay_seconds: { type: 'number', minimum: 0, maximum: 60, description: 'Wait before the shot; 0 = right away' },
           flash: {
             type: 'string',
             enum: FLASHES,
-            description: "iPhone only; on = the steady light (see light), auto = flash when dark; default: the user's choice",
+            description:
+              "iPhone app: on = the steady light (see light); Mac cameras: flash if any; auto = flash when dark; default: the user's choice",
           },
           lens: { type: 'string', enum: LENSES, description: 'iPhone app only; default: picked by zoom' },
           zoom: {
             type: 'number',
             minimum: 0.5,
             maximum: 25,
-            description: 'Camera-app zoom (0.5, 1, 2, 5…), clamped to what the phone has; default: the lens own',
+            description:
+              'Camera-app zoom (0.5, 1, 2, 5…), clamped to what the camera has (Mac cameras: 1–3× crop); default: the lens own',
           },
         },
       },
@@ -612,10 +549,15 @@ export const register: Register = on => {
     await $.tool.register({
       name: 'peek',
       description:
-        "Look through the user's iPhone camera (SnapCam app open on a paired iPhone): one current viewfinder " +
-        'frame (~1280 px, raw, not saved anywhere). Look first (peek), adjust (frame), peek again, and only ' +
-        'then shoot with take_photo, and only when the user allows shooting.',
-      inputSchema: { type: 'object', properties: {} },
+        "Look through one of the user's cameras: one current viewfinder frame (~1280 px, raw, not saved " +
+        'anywhere). camera as in take_photo (default iphone). Look first (peek), adjust (frame, iPhone ' +
+        'app only), peek again, and only then shoot with take_photo, and only when the user allows shooting.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          camera: { type: 'string', enum: CAMERAS, description: 'iphone (default), continuity, desk or mac' },
+        },
+      },
       isDeferred: false,
     })
     await $.tool.register({
@@ -669,9 +611,10 @@ export const register: Register = on => {
     await $.tool.register({
       name: 'camera_state',
       description:
-        "What the user's iPhone camera (SnapCam app) can do and how it is set now: lenses, zoom range, photo " +
-        'sizes, flash modes, light and exposure ranges, the live lens/zoom/flash/light/exposure, and how many ' +
-        'phone-shot photos wait in the tray above the prompt. ' +
+        "The cameras SnapCam can shoot with (sources: the iPhone app and the Mac's cameras, * = chosen in " +
+        "the Mac app), what the iPhone camera (SnapCam app) can do and how it is set now: lenses, zoom range, " +
+        'photo sizes, flash modes, light and exposure ranges, the live lens/zoom/flash/light/exposure, and how ' +
+        'many phone-shot photos wait in the tray above the prompt. ' +
         'Shoots nothing.',
       inputSchema: { type: 'object', properties: {} },
       isDeferred: false,
@@ -708,7 +651,7 @@ export const register: Register = on => {
   on('tool.call', { tool: TOOL }, async ($, e) => {
     type Input = { camera?: string; delay_seconds?: number; flash?: string; lens?: string; zoom?: number }
     const input = e as unknown as Input
-    const mode: SnapMode = input.camera === 'desk' ? 'desk' : 'iphone'
+    const mode: SnapMode = CAMERAS.find(c => c === input.camera?.toLowerCase()) ?? 'iphone'
     const delay = String(Math.min(Math.max(Number(input.delay_seconds ?? 3) || 0, 0), 60))
     const flash = FLASHES.find(f => f === input.flash)
     const lens = LENSES.find(l => l.toLowerCase() === input.lens?.toLowerCase())
@@ -731,7 +674,11 @@ export const register: Register = on => {
       await update($, busy, () => '')
     }
   }).catch(hookFailed)
-  on('tool.call', { tool: `${TOOL_PREFIX}peek` }, ($, e) => answer(peek($))).catch(hookFailed)
+  on('tool.call', { tool: `${TOOL_PREFIX}peek` }, ($, e) => {
+    const camera = (e as unknown as { camera?: string }).camera?.toLowerCase()
+
+    return answer(peek($, CAMERAS.find(c => c === camera) ?? 'iphone'))
+  }).catch(hookFailed)
   on('tool.call', { tool: `${TOOL_PREFIX}camera_state` }, ($, e) => answer(cameraState($))).catch(hookFailed)
   on('tool.call', { tool: `${TOOL_PREFIX}frame` }, ($, e) => {
     const input = e as unknown as { lens?: string; zoom?: number; exposure?: number }
@@ -757,20 +704,15 @@ export const register: Register = on => {
 
   on('command.run', { command: 'snap' }, async ($, e) => {
     const arg = e.args.trim() || 'iphone'
-    if (arg === 'caps' || arg === 'status' || arg === 'pair') {
+    if (arg === 'caps' || arg === 'status' || arg === 'pair' || arg === 'list') {
       const cli = await findCli($, await paths($))
-      if (!cli) return { text: 'SnapCam для Mac не установлен (snapcam-app: scripts/install-mac.sh)' }
-      const run = await $.process.run([cli, arg], { timeoutMs: 60_000 })
+      if (!cli) return { text: 'SnapCam для Mac не установлен: собери его из snapcam-app скриптом scripts/install-mac.sh' }
+      // `list` = the sources in `state`.
+      const run = await $.process.run([cli, arg === 'list' ? 'state' : arg], { timeoutMs: 60_000 })
 
       return { text: (run.stdout + run.stderr).trim() || `snapcam-cli: код ${run.exitCode}` }
     }
-    if (arg === 'list') {
-      const p = await paths($)
-      const err = await ensureApp($, p)
-
-      return { text: err ?? (await runHelper($, p, ['list', `${p.snaps}/list.jpg`, '0'])) }
-    }
-    const mode = (MODES.find(m => m.mode === arg)?.mode ?? 'iphone') as SnapMode
+    const mode = CAMERAS.find(c => c === arg) ?? 'iphone'
 
     return { text: await snapToTray($, mode), isTextDisplayOnly: true }
   })
@@ -892,10 +834,8 @@ export const register: Register = on => {
           </Box>
         )}
         <Box flexDirection="row" gap={1} alignItems="center">
-        {now === PHONE_BUSY ? (
-          <Text dimColor>SnapCam: снимает iPhone…</Text>
-        ) : now !== '' ? (
-          <Text dimColor>SnapCam: смотри в окно превью…</Text>
+        {now !== '' ? (
+          <Text dimColor>SnapCam: снимает {now === 'iphone' ? 'iPhone' : SOURCES[now as SnapMode]?.title ?? 'камера'}…</Text>
         ) : (
           [
             ...MODES.map(m => (

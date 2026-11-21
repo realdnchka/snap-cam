@@ -174,7 +174,7 @@ export const contract = {
         "status" : "available"
       },
       "peek" : {
-        "detail" : "`peek --preview`",
+        "detail" : "`peek --preview`, `peek --source`",
         "status" : "available"
       },
       "recent" : {
@@ -182,7 +182,7 @@ export const contract = {
         "status" : "available"
       },
       "shoot" : {
-        "detail" : "`capture`",
+        "detail" : "`capture`, `capture --source`",
         "status" : "available"
       },
       "state" : {
@@ -220,8 +220,9 @@ export const contract = {
         "status" : "available"
       },
       "liveVideo" : {
-        "detail" : "stream",
-        "status" : "planned"
+        "detail" : "Mac cameras",
+        "next" : "iPhone stream",
+        "status" : "available"
       },
       "pairing" : {
         "status" : "available"
@@ -235,6 +236,7 @@ export const contract = {
         "status" : "available"
       },
       "shoot" : {
+        "detail" : "iPhone or a Mac camera, source picker",
         "status" : "available"
       },
       "state" : {
@@ -277,7 +279,7 @@ export const contract = {
         "status" : "notApplicable"
       },
       "peek" : {
-        "detail" : "`peek`",
+        "detail" : "`peek camera`",
         "status" : "available"
       },
       "recent" : {
@@ -285,7 +287,7 @@ export const contract = {
         "status" : "available"
       },
       "shoot" : {
-        "detail" : "`take_photo`",
+        "detail" : "`take_photo camera`",
         "status" : "available"
       },
       "state" : {

@@ -46,13 +46,13 @@ test('every MCP cell that works names registered tools and their inputs', async 
 
 test('the contract names the camera tools of ADR 0003', () => {
   const detail = (command: string) => spans(mcp[command]?.detail ?? '')
-  expect(detail('shoot')).toEqual([['take_photo']])
+  expect(detail('shoot')).toEqual([['take_photo', 'camera']])
   expect(detail('frameLens')).toEqual([['frame', 'lens'], ['take_photo', 'lens']])
   expect(detail('frameZoom')).toEqual([['frame', 'zoom'], ['take_photo', 'zoom']])
   expect(detail('flash')).toEqual([['take_photo', 'flash']])
   expect(detail('light')).toEqual([['light', 'level']])
   expect(detail('exposure')).toEqual([['frame', 'exposure']])
-  expect(detail('peek')).toEqual([['peek']])
+  expect(detail('peek')).toEqual([['peek', 'camera']])
   expect(detail('state')).toEqual([['camera_state']])
   expect(detail('inbox')).toEqual([])
   expect(mcp.inbox?.status).toBe('notApplicable')
@@ -465,4 +465,71 @@ test('frame treats a null exposure as unset', async ($, on) => {
   await $.tool.call({ tool: 'mcp__snap-cam__frame', exposure: null } as never)
 
   expect(calls).toEqual([['frame', '--zoom', '2'], ['frame']])
+})
+
+// A CLI that records captures and peeks and answers like SnapCam for Mac.
+function fakeCamera(on: On): string[][] {
+  const calls: string[][] = []
+  on('fs.exists', (_, e) => ({ value: e.path === CLI }))
+  on('fs.write', () => ({ value: undefined }))
+  on('fs.read', () => ({ value: { base64: 'AA==' } }))
+  on('process.run', (_, e) => {
+    const argv = [...e.argv]
+    const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+    if (argv[0] !== CLI) return ok('')
+    calls.push(argv.slice(1))
+    const out = argv[argv.indexOf('--preview') + 1]
+
+    return ok(JSON.stringify({ preview: out, original: '/o.jpg', width: 4, height: 3, phone: 'iPhone Desk View', zoom: 2 }))
+  })
+  on('command.register', () => ({ value: { command: 'snap' } }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as Spec).name}` } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  return calls
+}
+
+test('take_photo camera desk shoots Desk View through the CLI, without a lens', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  mock.clock(on)
+  const calls = fakeCamera(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false })
+
+  const done = (await $.tool.call({
+    tool: 'mcp__snap-cam__take_photo', camera: 'desk', lens: 'wide', zoom: 2, delay_seconds: 0,
+  } as never)) as unknown as Done
+
+  expect(done.deny).toBeUndefined()
+  const capture = calls.find(call => call[0] === 'capture') ?? []
+  expect(capture.slice(0, 3)).toEqual(['capture', '--source', 'deskView'])
+  expect(capture).not.toContain('--lens')
+  expect(done.result?.[0]?.text).toContain('Desk View')
+  expect(done.result?.[0]?.text).toContain('lens ignored')
+})
+
+test('peek takes a camera; without one it looks through the phone', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const calls = fakeCamera(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false })
+
+  await $.tool.call({ tool: 'mcp__snap-cam__peek', camera: 'continuity' } as never)
+  await $.tool.call({ tool: 'mcp__snap-cam__peek' } as never)
+
+  const sources = calls.filter(call => call[0] === 'peek').map(call => call[call.indexOf('--source') + 1])
+  expect(sources).toEqual(['continuity', 'phone'])
+})
+
+test('without SnapCam for Mac take_photo says how to install it', async ($, on) => {
+  mock.env(on, { HOME: '/home' })
+  mock.clock(on)
+  on('fs.exists', () => ({ value: false }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('command.register', () => ({ value: { command: 'snap' } }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as Spec).name}` } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false })
+
+  const done = (await $.tool.call({ tool: 'mcp__snap-cam__take_photo', camera: 'desk' } as never)) as unknown as Done
+
+  expect(done.deny).toContain('scripts/install-mac.sh')
 })
