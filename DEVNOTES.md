@@ -3,14 +3,14 @@
 Claude Code mod. Lets the user (and the model) take a photo with the SnapCam iPhone app,
 Continuity Camera, Desk View or the Mac's camera — all through SnapCam for Mac's
 `snapcam-cli` — and get it into the session. Built 2026-11-16…19; iPhone app path
-2026-11-21 (0.8.0); the own Continuity/Desk View helper was removed in 0.9.0 (ADR 0004).
+2026-11-21 (0.8.0); the own Continuity/Desk View helper was removed in 0.9.1 (ADR 0004).
 Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapcam-app`.
 
 ## Files
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.9.0) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.9.1) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}` |
 | `README.md` | user-facing summary |
@@ -21,14 +21,14 @@ Runtime state (outside the repo): `~/Library/Application Support/snap-cam/`
 `inbox-staging/` (CLI inbox previews before the move), `recent-staging/<stamp>-<n>/` (one per
 `recent_photos` call, removed after it), `peek.jpg` (last `peek`, overwritten).
 Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`. Leftovers of the
-pre-0.9 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are unused.
+pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are unused.
 
 ## How it works
 
 - **Band above the prompt** (`ui.render AbovePrompt`, desktop/terminal/vscode, not mobile):
   row 1 = tray of pending thumbnails (🔍 opens the preview pane, ✕ drops it); row 2 =
   `📷 iPhone`, `🗂 DeskView`, `⚡ Fast Capture` (last-used camera, auto-shot, delay 0).
-- **One capture path** (0.9.0, ADR 0004; `shoot`): `findCli` = `$SNAPCAM_CLI`, else
+- **One capture path** (0.9.1, ADR 0004; `shoot`): `findCli` = `$SNAPCAM_CLI`, else
   `~/Applications/SnapCam.app/Contents/Helpers/snapcam-cli`, else `/Applications/…`; none →
   the tool fails with «build it from snapcam-app with scripts/install-mac.sh». Runs
   `snapcam-cli capture [--source <src>] --json --delay <s> --timeout 25|55 --preview
@@ -68,6 +68,10 @@ pre-0.9 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are u
   `$.session.surfaces()` holds a surface that draws it (anything but `mobile`). The
   submit doesn't say which surface sent it, so with desktop and mobile both attached a
   mobile prompt still takes the tray the desktop shows; mobile-only leaves it untouched.
+  No surface at all (an interactive SDK host that draws nothing; a `-p` run never polls)
+  also leaves the tray (0.8.12): nobody saw it, and taking would empty the Mac inbox. Such a
+  prompt, and a mobile-only one, gets context lines: band shot paths (Desk View shots are not
+  in the history) and the phone photo count, which `recent_photos` reads.
   Band shots are taken out of `pending` inside one `update`, so two submits can't share them.
 - **Camera tools for the model** (0.8.9), all via `snapcam-cli` (may launch the app):
   `peek` (`peek --preview peek.jpg --json`, ~1280 px raw frame, not in the photo library;
@@ -75,9 +79,9 @@ pre-0.9 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are u
   `exposure EV` when given; exposure alone skips `frame`; text; no inputs reads),
   `light(level)` (0.8.10; `light LEVEL|off`, absolute level clamped 0..1, 0 = off; text),
   `frame` ignores `exposure: null` (0.8.11; it used to become 0 EV),
-  `peek(camera?)` (0.9.0) passes `--source` like `take_photo`; `frame`/`light` drive the phone only,
-  `camera_state` (`state`, text: sources (0.9.0; `*` = chosen in the Mac app), caps incl. light/exposure ranges, live framing incl.
-  light/exposure/`light off (hot)`, inbox count; exit 0 without a phone),
+  `peek(camera?)` (0.9.1) passes `--source` like `take_photo`; `frame`/`light` drive the phone only,
+  `camera_state` (`state`, text: sources (0.9.1; `*` = chosen in the Mac app), caps incl. light/exposure ranges, live framing incl.
+  light/exposure/`light off (hot)`/`light off (iPhone app in background)`, inbox count; exit 0 without a phone),
   `recent_photos(count?)` (0.8.9, replaces `take_inbox`; `recent N --preview-dir
   recent-staging/<stamp>-<n> --preview-size 2400 --json`, default 1, cap 5): the newest photos of the Mac
   app's save folder, any origin (phone shutter, Mac, CLI), previews moved to
@@ -88,6 +92,13 @@ pre-0.9 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are u
   tray» + one image block each. Reads only: the inbox and the tray are untouched; the
   hidden inbox queue now exists only for the tray. Failures `deny` with the exit-code reason (69/75/64/1). Descriptions say: look
   (peek), adjust (frame), then shoot, and shoot only when the user allows.
+- **Text tools** (0.9.0, snapcam-app `feat/ai-local`): `read_text(path?, recent?)` runs
+  `ocr <path>|--recent N --json` (timeout 150 s: the first Vision/model run loads assets) and
+  prints `Photo: <path>` + `[area] paragraph` lines; `ask_photo(question?, path?, recent?)` runs
+  `ask … --json [--question Q]` and prints the answer with the photo paths. The CLI does the work
+  in its own process (Vision, FoundationModels `SystemLanguageModel` only, never Private Cloud
+  Compute); it asks the app only for `--recent` paths. Any non-zero exit → `deny` with the
+  CLI's reason (69 = Apple Intelligence unavailable).
 - **Tray → prompt**: `prompt.submit` appends `📷 <name>` lines to the text and a
   `context` note telling the model to `Read` the paths; `ui.render UserMessage` hides those
   lines and draws thumbnails + 🔍 instead.
@@ -103,7 +114,7 @@ pre-0.9 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are u
 
 ## Facts established on this Mac (MacBook Pro + iPhone)
 
-Found with the old helper (removed in 0.9.0); SnapCam for Mac's `MacCamera` builds on them:
+Found with the old helper (removed in 0.9.1); SnapCam for Mac's `MacCamera` builds on them:
 crop zoom, largest photo format with 1080p accepted, frames as delivered (no rotation),
 Desk View from video frames, the Continuity black-frame check.
 
@@ -171,11 +182,15 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 ## Open / unverified
 
-- 0.9.0 (branches `feat/mac-sources` here and in snapcam-app): helper and Continuity fallback
+- 0.9.1 (branches `feat/mac-sources` here and in snapcam-app): helper and Continuity fallback
   removed; every camera via `capture --source`. Checked with `claude plugin test` (fake CLI)
   and the app's unit tests; Mac cameras not yet run on the real Mac (Continuity, Desk View,
   built-in, flash, black-frame message). Needs the snapcam-app build with `--source`: an older
   CLI answers 64 («unknown option --source»).
+- 0.9.0 `read_text` / `ask_photo`: checked with `claude plugin test` (fake CLI) and the
+  branch CLI on real photos on this Mac (OCR and the model work; the model's languages
+  exclude Russian, but Russian OCR text with a Russian question answered). Needs the
+  snapcam-app `feat/ai-local` build installed (CLI `ocr`/`ask`); an older app answers 64.
 
 - 0.8.11 (branch `fix/sprint-1`): overlapping-submit guard, mobile-only tray rule, poll
   backoff, `recent_photos` naming/errors/staging cleanup, `frame exposure: null`. Checked

@@ -32,8 +32,9 @@ For the iPhone app the SnapCam app must be open on the phone; the Mac app waits 
 for a paired phone that is reconnecting. A wireless iPhone can take 10–20 s to appear as a
 Continuity camera or Desk View; the Mac app waits up to 25 s for it.
 
-The Mac app's window has the same sources in its toolbar picker, with a live preview, zoom
-and flash for Mac cameras. Settings per camera (zoom, flash, format) are used when the mod
+The Mac app's window has the same sources in its toolbar camera picker; its Live pane shows
+the chosen one (the iPhone's stream, or a Mac camera's preview with the crop frame), and
+the inspector holds zoom and flash for Mac cameras. Settings per camera (zoom, flash, format) are used when the mod
 leaves them unset.
 
 ## Usage
@@ -60,7 +61,14 @@ The model gets:
 - `camera_state` — the sources, then lenses, zoom range, sizes, flash, light and exposure
   ranges, the live framing and how many phone shots wait in the tray;
 - `recent_photos` (`count`, default 1, at most 5) — the newest photos of the SnapCam
-  history, whatever took them, newest first, as images. It only reads: the tray keeps its photos.
+  history (the Mac app's save folder, default `~/Pictures/SnapCam/Default`), whatever took
+  them, newest first, as images. It only reads: the tray keeps its photos;
+- `read_text` (`path`, or `recent` newest N, default 1) — on-device OCR on the Mac (Vision,
+  English and Russian) of saved photos: paragraphs in reading order with a rough place
+  (`[top left]`…). Never runs on live or enhanced frames;
+- `ask_photo` (`question`, default: summarize; `path` / `recent`) — the Mac's on-device
+  Apple model answers from that OCR text only. Needs Apple Intelligence on; otherwise it
+  fails with the reason. Nothing leaves the Mac.
 
 ## Phone inbox
 

@@ -44,6 +44,8 @@ const CLI_IN_APP = 'SnapCam.app/Contents/Helpers/snapcam-cli'
 const CLI_TIMEOUT_S = 25
 // A wireless iPhone can take 10–20 s to appear as a Mac camera.
 const MAC_TIMEOUT_S = 55
+// First OCR or model run loads assets: can take a minute.
+const READ_TIMEOUT_S = 150
 // User shots fire at once: they aim before pressing.
 const MANUAL_COUNTDOWN_S = 0
 const CLI_UNAVAILABLE = 69
@@ -385,6 +387,58 @@ async function cameraState($: EngineInterface): Promise<Block[]> {
   return [{ type: 'text', text: run.stdout.trim() }]
 }
 
+type Paragraph = { text?: string; area?: string }
+type PhotoText = { path?: string; paragraphs?: Paragraph[] }
+
+// `path` wins; else the newest `recent` (default 1) of the save folder.
+function photoArgs(input: { path?: unknown; recent?: unknown }): string[] {
+  const path = typeof input.path === 'string' ? input.path.trim() : ''
+  if (path) return [path]
+  const asked = Math.floor(Number(input.recent))
+
+  return ['--recent', String(asked >= 1 ? Math.min(asked, RECENT_MAX) : 1)]
+}
+
+function describeText(photos: PhotoText[]): string {
+  return photos
+    .map(photo => {
+      const paragraphs = (photo.paragraphs ?? []).filter(p => p.text?.trim())
+      const body = paragraphs.length ? paragraphs.map(p => `[${p.area ?? '?'}] ${p.text}`).join('\n') : '(no text found)'
+      return `Photo: ${photo.path ?? '?'}\n${body}`
+    })
+    .join('\n\n')
+}
+
+async function readText($: EngineInterface, input: { path?: unknown; recent?: unknown }): Promise<Block[]> {
+  const cli = await needCli($, await paths($))
+  const run = await runCli($, cli, ['ocr', ...photoArgs(input), '--json'], READ_TIMEOUT_S)
+  if (run.exitCode !== 0) throw new Error(run.reason)
+  const photos = parseJson<{ photos: PhotoText[] }>(run.stdout).photos ?? []
+  const note = 'On-device OCR (Vision, en+ru); [area] is the rough place in the photo; may contain mistakes.'
+
+  return [{ type: 'text', text: `${note}\n\n${describeText(photos)}` }]
+}
+
+async function askPhoto(
+  $: EngineInterface,
+  input: { question?: unknown; path?: unknown; recent?: unknown },
+): Promise<Block[]> {
+  const cli = await needCli($, await paths($))
+  const question = typeof input.question === 'string' ? input.question.trim() : ''
+  const argv = ['ask', ...photoArgs(input), '--json']
+  if (question) argv.push('--question', question)
+  const run = await runCli($, cli, argv, READ_TIMEOUT_S)
+  if (run.exitCode !== 0) throw new Error(run.reason)
+  const json = parseJson<{ answer: string; photos: string[] }>(run.stdout)
+
+  return [
+    {
+      type: 'text',
+      text: `${json.answer ?? ''}\n\n(on-device Apple model, from the OCR text of ${(json.photos ?? []).join(', ')})`,
+    },
+  ]
+}
+
 const times = (zoom: number) => `${Number(zoom.toFixed(1))}×`
 
 // Every camera goes through SnapCam for Mac; a numeric delay shoots by itself.
@@ -597,7 +651,8 @@ export const register: Register = on => {
         "Turn the user's iPhone light (the steady torch, SnapCam app) on at a brightness, or off with 0. " +
         'level is absolute (0..1 of the maximum), not a step from the current one; the phone clamps it. ' +
         'Same as flash on; photos taken while it is lit fire no extra flash. It stays lit until turned off, so ' +
-        'turn it off when done. The phone refuses while it is too hot (camera_state says "light off (hot)"). ' +
+        'turn it off when done. The phone refuses while it is too hot (camera_state says "light off (hot)") ' +
+        'or while the iPhone app is in the background ("light off (iPhone app in background)"). ' +
         'Shoots nothing; peek to check.',
       inputSchema: {
         type: 'object',
@@ -641,6 +696,40 @@ export const register: Register = on => {
             maximum: RECENT_MAX,
             description: `How many, newest first; default 1, at most ${RECENT_MAX}`,
           },
+        },
+      },
+      isDeferred: false,
+    })
+    const photoInputs = {
+      path: { type: 'string', description: 'A photo file; default: the newest SnapCam photo' },
+      recent: {
+        type: 'integer',
+        minimum: 1,
+        maximum: RECENT_MAX,
+        description: `Without path: the newest N SnapCam photos (default 1, at most ${RECENT_MAX})`,
+      },
+    }
+    await $.tool.register({
+      name: 'read_text',
+      description:
+        'Read the text in a SnapCam photo with on-device OCR on the Mac (Vision, English and Russian). Returns ' +
+        'paragraphs in reading order, each with its rough place ([top left], [center]…). Works on saved photos ' +
+        '(originals), never on live frames; no phone needed. Cheaper and more exact than reading the image yourself ' +
+        'for long text.',
+      inputSchema: { type: 'object', properties: photoInputs },
+      isDeferred: false,
+    })
+    await $.tool.register({
+      name: 'ask_photo',
+      description:
+        "Ask the Mac's on-device Apple model (Apple Intelligence, local only) a question about the text in a " +
+        'SnapCam photo; without a question it summarizes. It sees only the OCR text, not the image. Fails with a ' +
+        'clear reason when Apple Intelligence is off or unavailable; then use read_text and answer yourself.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: 'What to ask about the text; default: summarize' },
+          ...photoInputs,
         },
       },
       isDeferred: false,
@@ -707,6 +796,13 @@ export const register: Register = on => {
     return answer(recentPhotos($, asked >= 1 ? Math.min(asked, RECENT_MAX) : 1))
   }).catch(hookFailed)
 
+  on('tool.call', { tool: `${TOOL_PREFIX}read_text` }, ($, e) =>
+    answer(readText($, e as unknown as { path?: unknown; recent?: unknown })),
+  ).catch(hookFailed)
+  on('tool.call', { tool: `${TOOL_PREFIX}ask_photo` }, ($, e) =>
+    answer(askPhoto($, e as unknown as { question?: unknown; path?: unknown; recent?: unknown })),
+  ).catch(hookFailed)
+
   on('command.run', { command: 'snap' }, async ($, e) => {
     const arg = e.args.trim() || 'iphone'
     if (arg === 'caps' || arg === 'status' || arg === 'pair' || arg === 'list') {
@@ -725,11 +821,17 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     if (e.command || e.isMeta || e.origin?.kind === 'plugin') return next(e)
     resetBackoff()
-    // Take the tray only if some surface shows it.
+    // Take the tray only if some surface shows it; headless runs never consume it.
     const shown = (await $.session.surfaces()).some(surface => surface !== 'mobile')
     let tray: string[] = []
     let fromPhone: InboxItem[] = []
-    if (shown) {
+    const held: string[] = []
+    if (!shown) {
+      const band = await read($, pending)
+      const phone = (await read($, phoneTray)).length
+      if (band.length > 0) held.push(`Camera shots wait in the SnapCam tray, not attached: ${band.join(', ')}.`)
+      if (phone > 0) held.push(`${phone} phone photo(s) wait in the SnapCam tray, not attached; recent_photos reads them.`)
+    } else {
       await update($, pending, list => {
         tray = [...list]
         return list.length > 0 ? [] : list
@@ -739,7 +841,9 @@ export const register: Register = on => {
       for (const item of fromPhone) taking.add(item.id)
     }
     const typed = e.text.match(SNAP_PATH) ?? []
-    if (tray.length + fromPhone.length + typed.length === 0) return next(e)
+    if (tray.length + fromPhone.length + typed.length === 0) {
+      return held.length > 0 ? next({ ...e, context: [...(e.context ?? []), ...held] }) : next(e)
+    }
     let phoneShots: string[] = []
     try {
       phoneShots = fromPhone.length > 0 ? await takeTray($, fromPhone) : []
@@ -757,7 +861,7 @@ export const register: Register = on => {
     return next({
       ...e,
       text: lines ? `${e.text}\n\n${lines}` : e.text,
-      context: [...(e.context ?? []), note],
+      context: [...(e.context ?? []), note, ...held],
     })
   }).catch(($, e, next) => next(e))
 

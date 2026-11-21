@@ -57,6 +57,8 @@ test('the contract names the camera tools of ADR 0003', () => {
   expect(detail('inbox')).toEqual([])
   expect(mcp.inbox?.status).toBe('notApplicable')
   expect(detail('recent')).toEqual([['recent_photos', 'count']])
+  expect(detail('readText')).toEqual([['read_text', 'path', 'recent']])
+  expect(detail('ask')).toEqual([['ask_photo', 'question', 'path', 'recent']])
 })
 
 const CLI = '/cli/snapcam-cli'
@@ -162,6 +164,28 @@ test('a failed take keeps phone shots in the tray and attaches none of them', as
   expect(calls.filter(args => args.includes('--take'))).toHaveLength(2)
   expect(sent.at(-1)).toContain('📷 phone-aaaaaaaa.jpg')
   expect(sent.at(-1)).toContain('📷 phone-bbbbbbbb.jpg')
+})
+
+test('with no drawing surface the tray stays put and the model hears it waits', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const clock = mock.clock(on)
+  const calls = fakeMac(on)
+  let context: readonly string[] = []
+  on('prompt.submit', (_, e) => {
+    context = e.context ?? []
+    return { text: e.text, context: e.context }
+  })
+  on('command.register', () => ({ value: { command: 'snap' } }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as Spec).name}` } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.surfaces', () => ({ value: [] }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(3000)
+
+  await $.prompt.submit({ text: 'look', wait: false, origin: { kind: 'unclassified' } })
+
+  expect(calls.some(args => args.includes('--take'))).toBe(false)
+  expect(context.join('\n')).toContain('2 phone photo(s) wait in the SnapCam tray')
 })
 
 test('take_inbox is gone; recent_photos reads history and leaves the tray alone', async ($, on) => {
@@ -534,4 +558,58 @@ test('without SnapCam for Mac take_photo says how to install it', async ($, on) 
   const done = (await $.tool.call({ tool: 'mcp__snap-cam__take_photo', camera: 'desk' } as never)) as unknown as Done
 
   expect(done.deny).toContain('scripts/install-mac.sh')
+})
+
+test('read_text runs OCR on the newest photo and lists paragraphs with their place', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  mock.clock(on)
+  const runs: string[][] = []
+  on('fs.exists', (_, e) => ({ value: e.path === CLI }))
+  on('process.run', (_, e) => {
+    const argv = [...e.argv]
+    runs.push(argv)
+    const photos = [{ path: '/D/a.heic', paragraphs: [{ text: 'Total 5', area: 'bottom right' }, { text: ' ' }] }]
+
+    return ran(0, JSON.stringify({ photos }))
+  })
+  startHooks(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false })
+
+  const done = (await $.tool.call({ tool: 'mcp__snap-cam__read_text' } as never)) as unknown as Done
+  expect(done.deny).toBeUndefined()
+  expect(runs.at(-1)).toEqual([CLI, 'ocr', '--recent', '1', '--json'])
+  expect(done.result?.[0]?.text).toContain('Photo: /D/a.heic\n[bottom right] Total 5')
+
+  await $.tool.call({ tool: 'mcp__snap-cam__read_text', path: '/x/y.jpg', recent: 3 } as never)
+  expect(runs.at(-1)).toEqual([CLI, 'ocr', '/x/y.jpg', '--json'])
+  await $.tool.call({ tool: 'mcp__snap-cam__read_text', recent: 40 } as never)
+  expect(runs.at(-1)).toEqual([CLI, 'ocr', '--recent', '5', '--json'])
+})
+
+test('ask_photo passes the question and denies with the reason when Apple Intelligence is off', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  mock.clock(on)
+  const runs: string[][] = []
+  let off = false
+  on('fs.exists', (_, e) => ({ value: e.path === CLI }))
+  on('process.run', (_, e) => {
+    const argv = [...e.argv]
+    runs.push(argv)
+    if (off) return ran(69, JSON.stringify({ error: 'Apple Intelligence is off.', exit: '69' }))
+
+    return ran(0, JSON.stringify({ answer: '245 rubles', photos: ['/D/a.heic'], question: 'Total?', text: 'x' }))
+  })
+  startHooks(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false })
+
+  const done = (await $.tool.call({ tool: 'mcp__snap-cam__ask_photo', question: ' Total? ' } as never)) as unknown as Done
+  expect(done.deny).toBeUndefined()
+  expect(runs.at(-1)).toEqual([CLI, 'ask', '--recent', '1', '--json', '--question', 'Total?'])
+  expect(done.result?.[0]?.text).toContain('245 rubles')
+  expect(done.result?.[0]?.text).toContain('/D/a.heic')
+
+  off = true
+  const denied = (await $.tool.call({ tool: 'mcp__snap-cam__ask_photo', path: '/D/a.heic' } as never)) as unknown as Done
+  expect(runs.at(-1)).toEqual([CLI, 'ask', '/D/a.heic', '--json'])
+  expect(denied.deny).toBe('SnapCam: Apple Intelligence is off.')
 })

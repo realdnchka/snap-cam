@@ -2,6 +2,9 @@
 export const contract = {
   "cells" : {
     "appIntents" : {
+      "ask" : {
+        "status" : "planned"
+      },
       "exposure" : {
         "status" : "notApplicable"
       },
@@ -32,6 +35,10 @@ export const contract = {
       "peek" : {
         "status" : "notApplicable"
       },
+      "readText" : {
+        "detail" : "«Read Text in Photo»",
+        "status" : "available"
+      },
       "recent" : {
         "status" : "planned"
       },
@@ -44,6 +51,9 @@ export const contract = {
       }
     },
     "cameraControl" : {
+      "ask" : {
+        "status" : "notApplicable"
+      },
       "exposure" : {
         "detail" : "system slider",
         "status" : "available"
@@ -80,6 +90,9 @@ export const contract = {
       "peek" : {
         "status" : "notApplicable"
       },
+      "readText" : {
+        "status" : "notApplicable"
+      },
       "recent" : {
         "status" : "notApplicable"
       },
@@ -92,6 +105,9 @@ export const contract = {
       }
     },
     "claudePane" : {
+      "ask" : {
+        "status" : "planned"
+      },
       "exposure" : {
         "status" : "planned"
       },
@@ -125,6 +141,9 @@ export const contract = {
       "peek" : {
         "status" : "planned"
       },
+      "readText" : {
+        "status" : "planned"
+      },
       "recent" : {
         "detail" : "gallery",
         "status" : "planned"
@@ -138,6 +157,10 @@ export const contract = {
       }
     },
     "cli" : {
+      "ask" : {
+        "detail" : "`ask --question`, `ask --recent`",
+        "status" : "available"
+      },
       "exposure" : {
         "detail" : "`exposure`",
         "status" : "available"
@@ -177,6 +200,10 @@ export const contract = {
         "detail" : "`peek --preview`, `peek --source`",
         "status" : "available"
       },
+      "readText" : {
+        "detail" : "`ocr`, `ocr --recent`",
+        "status" : "available"
+      },
       "recent" : {
         "detail" : "`recent`",
         "status" : "available"
@@ -191,6 +218,10 @@ export const contract = {
       }
     },
     "mac" : {
+      "ask" : {
+        "detail" : "history: Ask",
+        "status" : "available"
+      },
       "exposure" : {
         "detail" : "inspector, live",
         "status" : "available"
@@ -220,8 +251,7 @@ export const contract = {
         "status" : "available"
       },
       "liveVideo" : {
-        "detail" : "Mac cameras",
-        "next" : "iPhone stream",
+        "detail" : "iPhone live view, Mac camera preview",
         "status" : "available"
       },
       "pairing" : {
@@ -229,6 +259,10 @@ export const contract = {
       },
       "peek" : {
         "detail" : "inspector",
+        "status" : "available"
+      },
+      "readText" : {
+        "detail" : "history: Read Text",
         "status" : "available"
       },
       "recent" : {
@@ -244,6 +278,10 @@ export const contract = {
       }
     },
     "mcp" : {
+      "ask" : {
+        "detail" : "`ask_photo question path recent`",
+        "status" : "available"
+      },
       "exposure" : {
         "detail" : "`frame exposure`",
         "status" : "available"
@@ -282,6 +320,10 @@ export const contract = {
         "detail" : "`peek camera`",
         "status" : "available"
       },
+      "readText" : {
+        "detail" : "`read_text path recent`",
+        "status" : "available"
+      },
       "recent" : {
         "detail" : "`recent_photos count`",
         "status" : "available"
@@ -296,6 +338,10 @@ export const contract = {
       }
     },
     "phoneScreen" : {
+      "ask" : {
+        "detail" : "the Mac answers",
+        "status" : "notApplicable"
+      },
       "exposure" : {
         "detail" : "slider",
         "status" : "available"
@@ -331,6 +377,10 @@ export const contract = {
         "status" : "available"
       },
       "peek" : {
+        "status" : "notApplicable"
+      },
+      "readText" : {
+        "detail" : "the Mac reads",
         "status" : "notApplicable"
       },
       "recent" : {
@@ -398,6 +448,14 @@ export const contract = {
     {
       "id" : "pairing",
       "title" : "pair / forget"
+    },
+    {
+      "id" : "readText",
+      "title" : "read text"
+    },
+    {
+      "id" : "ask",
+      "title" : "ask about a photo"
     }
   ],
   "surfaces" : [
