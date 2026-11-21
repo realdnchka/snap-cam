@@ -11,6 +11,9 @@ export const contract = {
       "flash" : {
         "status" : "planned"
       },
+      "focus" : {
+        "status" : "notApplicable"
+      },
       "formatSize" : {
         "status" : "notApplicable"
       },
@@ -61,6 +64,9 @@ export const contract = {
       "flash" : {
         "detail" : "picker",
         "status" : "available"
+      },
+      "focus" : {
+        "status" : "notApplicable"
       },
       "formatSize" : {
         "status" : "notApplicable"
@@ -113,6 +119,9 @@ export const contract = {
       },
       "flash" : {
         "status" : "planned"
+      },
+      "focus" : {
+        "status" : "notApplicable"
       },
       "formatSize" : {
         "status" : "notApplicable"
@@ -168,6 +177,9 @@ export const contract = {
       "flash" : {
         "detail" : "`flash`, `capture --flash`",
         "status" : "available"
+      },
+      "focus" : {
+        "status" : "notApplicable"
       },
       "formatSize" : {
         "detail" : "`capture --format --size`",
@@ -230,8 +242,12 @@ export const contract = {
         "detail" : "inspector, live; on = light",
         "status" : "available"
       },
+      "focus" : {
+        "detail" : "click in the live view",
+        "status" : "planned"
+      },
       "formatSize" : {
-        "detail" : "inspector",
+        "detail" : "inspector; shared with the iPhone",
         "status" : "available"
       },
       "frameLens" : {
@@ -290,6 +306,9 @@ export const contract = {
         "detail" : "`take_photo flash`; on = light",
         "status" : "available"
       },
+      "focus" : {
+        "status" : "notApplicable"
+      },
       "formatSize" : {
         "detail" : "Mac default",
         "status" : "notApplicable"
@@ -343,22 +362,27 @@ export const contract = {
         "status" : "notApplicable"
       },
       "exposure" : {
-        "detail" : "slider",
+        "detail" : "exposure ruler",
         "status" : "available"
       },
       "flash" : {
-        "detail" : "flash menu; on = light",
+        "detail" : "flash dial; on = light",
+        "status" : "available"
+      },
+      "focus" : {
+        "detail" : "tap; hold = AE/AF lock",
         "status" : "available"
       },
       "formatSize" : {
-        "status" : "notApplicable"
+        "detail" : "settings sheet; the Mac's values",
+        "status" : "available"
       },
       "frameLens" : {
-        "detail" : "lens buttons",
+        "detail" : "zoom ruler stops",
         "status" : "available"
       },
       "frameZoom" : {
-        "detail" : "pinch, slider",
+        "detail" : "pinch, zoom ruler",
         "status" : "available"
       },
       "inbox" : {
@@ -408,6 +432,10 @@ export const contract = {
     {
       "id" : "frameZoom",
       "title" : "frame: zoom"
+    },
+    {
+      "id" : "focus",
+      "title" : "focus / AE-AF lock"
     },
     {
       "id" : "flash",
