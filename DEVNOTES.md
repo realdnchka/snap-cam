@@ -9,7 +9,7 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.9) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.8.10) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}` |
 | `helper/SnapCam.swift` + `helper/Info.plist` | the Continuity/Desk View helper, built on first use |
@@ -82,8 +82,11 @@ Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   Mobile draws no band, but a prompt from it still takes tray photos.
 - **Camera tools for the model** (0.8.9), all via `snapcam-cli` (may launch the app):
   `peek` (`peek --preview peek.jpg --json`, ~1280 px raw frame, not in the photo library;
-  text + image), `frame(lens?, zoom?)` (`frame [--lens] [--zoom]`, text; no inputs reads),
-  `camera_state` (`state`, text: caps, live framing, inbox count; exit 0 without a phone),
+  text + image), `frame(lens?, zoom?, exposure?)` (`frame [--lens] [--zoom]`, then
+  `exposure EV` when given; exposure alone skips `frame`; text; no inputs reads),
+  `light(level)` (0.8.10; `light LEVEL|off`, level clamped 0..1, 0 = off; text),
+  `camera_state` (`state`, text: caps incl. light/exposure ranges, live framing incl.
+  light/exposure/`light off (hot)`, inbox count; exit 0 without a phone),
   `recent_photos(count?)` (0.8.9, replaces `take_inbox`; `recent N --preview-dir
   recent-staging --preview-size 2400 --json`, default 1, cap 5): the newest photos of the Mac
   app's save folder, any origin (phone shutter, Mac, CLI), previews moved to
@@ -99,7 +102,7 @@ Photos: `~/Pictures/SnapCam/ClaudeSnaps/<mode>-<YYYYMMDD-HHMMSS>.jpg`.
   < 90 KB so the inline SVG stays under the 131 072-char `Svg.source` limit) + size json,
   sets `viewing`, `$.ui.open({ id: 'snap-preview' })`; `ui.render Pane` draws it.
 - **Model tool** `mcp__snap-cam__take_photo` (`camera`, `delay_seconds` 0–60, default 3,
-  `flash`, `lens` ultraWide|wide|telephoto, `zoom` display 0.5–25): iPhone app path first,
+  `flash` (on = the steady light via the app, 0.8.10), `lens` ultraWide|wide|telephoto, `zoom` display 0.5–25): iPhone app path first,
   else the window with auto-shot after 1.5 s warm-up + delay (zoom → crop, lens ignored);
   returns `result: [{type:'text', <path + which path/lens/zoom/size>}, {type:'image'}]`.
 - **`/snap iphone|desk|list|caps|status|pair`** — `list` prints every Continuity camera with
@@ -174,6 +177,11 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 
 ## Open / unverified
+
+- 0.8.10 `light` and `frame exposure`: checked with `claude plugin test` (fake CLI) only.
+  Needs the snapcam-app `feat/camera-control` build (protocol 5, CLI `light`/`exposure`);
+  an older app answers 64 (unknown command), an older phone a clear "update SnapCam" error.
+  `take_photo flash on` now means the steady light (app-side change).
 
 - 0.8.9 `recent_photos`: checked with `claude plugin test` (fake CLI) only. Needs the
   snapcam-app `feat/recent` build installed (CLI `recent`); an older app answers it with an

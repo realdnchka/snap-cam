@@ -20,6 +20,9 @@ export const contract = {
       "inbox" : {
         "status" : "planned"
       },
+      "light" : {
+        "status" : "planned"
+      },
       "liveVideo" : {
         "status" : "notApplicable"
       },
@@ -43,26 +46,30 @@ export const contract = {
     "cameraControl" : {
       "exposure" : {
         "detail" : "system slider",
-        "status" : "planned"
+        "status" : "available"
       },
       "flash" : {
         "detail" : "picker",
-        "status" : "planned"
+        "status" : "available"
       },
       "formatSize" : {
         "status" : "notApplicable"
       },
       "frameLens" : {
         "detail" : "system zoom slider switches lenses",
-        "status" : "planned"
+        "status" : "available"
       },
       "frameZoom" : {
         "detail" : "system slider",
-        "status" : "planned"
+        "status" : "available"
       },
       "inbox" : {
         "detail" : "sends",
         "status" : "notApplicable"
+      },
+      "light" : {
+        "detail" : "brightness slider",
+        "status" : "available"
       },
       "liveVideo" : {
         "status" : "notApplicable"
@@ -78,7 +85,7 @@ export const contract = {
       },
       "shoot" : {
         "detail" : "full press",
-        "status" : "planned"
+        "status" : "available"
       },
       "state" : {
         "status" : "notApplicable"
@@ -105,6 +112,9 @@ export const contract = {
         "next" : "gallery",
         "status" : "available"
       },
+      "light" : {
+        "status" : "planned"
+      },
       "liveVideo" : {
         "detail" : "few fps",
         "status" : "planned"
@@ -129,7 +139,8 @@ export const contract = {
     },
     "cli" : {
       "exposure" : {
-        "status" : "planned"
+        "detail" : "`exposure`",
+        "status" : "available"
       },
       "flash" : {
         "detail" : "`flash`, `capture --flash`",
@@ -149,6 +160,10 @@ export const contract = {
       },
       "inbox" : {
         "detail" : "`inbox`, `inbox --take --id`",
+        "status" : "available"
+      },
+      "light" : {
+        "detail" : "`light`",
         "status" : "available"
       },
       "liveVideo" : {
@@ -177,10 +192,11 @@ export const contract = {
     },
     "mac" : {
       "exposure" : {
-        "status" : "planned"
+        "detail" : "inspector, live",
+        "status" : "available"
       },
       "flash" : {
-        "detail" : "inspector, live",
+        "detail" : "inspector, live; on = light",
         "status" : "available"
       },
       "formatSize" : {
@@ -198,6 +214,10 @@ export const contract = {
       "inbox" : {
         "detail" : "phone shots go to history; the queue is for Claude",
         "status" : "notApplicable"
+      },
+      "light" : {
+        "detail" : "inspector brightness, live",
+        "status" : "available"
       },
       "liveVideo" : {
         "detail" : "stream",
@@ -223,10 +243,11 @@ export const contract = {
     },
     "mcp" : {
       "exposure" : {
-        "status" : "planned"
+        "detail" : "`frame exposure`",
+        "status" : "available"
       },
       "flash" : {
-        "detail" : "`take_photo flash`",
+        "detail" : "`take_photo flash`; on = light",
         "status" : "available"
       },
       "formatSize" : {
@@ -244,6 +265,10 @@ export const contract = {
       "inbox" : {
         "detail" : "tray only",
         "status" : "notApplicable"
+      },
+      "light" : {
+        "detail" : "`light level`",
+        "status" : "available"
       },
       "liveVideo" : {
         "status" : "notApplicable"
@@ -270,10 +295,11 @@ export const contract = {
     },
     "phoneScreen" : {
       "exposure" : {
-        "status" : "planned"
+        "detail" : "slider",
+        "status" : "available"
       },
       "flash" : {
-        "detail" : "flash menu",
+        "detail" : "flash menu; on = light",
         "status" : "available"
       },
       "formatSize" : {
@@ -284,11 +310,15 @@ export const contract = {
         "status" : "available"
       },
       "frameZoom" : {
-        "detail" : "pinch",
+        "detail" : "pinch, slider",
         "status" : "available"
       },
       "inbox" : {
         "detail" : "offline queue (unsent shots)",
+        "status" : "available"
+      },
+      "light" : {
+        "detail" : "brightness slider while on",
         "status" : "available"
       },
       "liveVideo" : {
@@ -330,6 +360,10 @@ export const contract = {
     {
       "id" : "flash",
       "title" : "flash"
+    },
+    {
+      "id" : "light",
+      "title" : "light"
     },
     {
       "id" : "exposure",

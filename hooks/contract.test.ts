@@ -50,6 +50,8 @@ test('the contract names the camera tools of ADR 0003', () => {
   expect(detail('frameLens')).toEqual([['frame', 'lens'], ['take_photo', 'lens']])
   expect(detail('frameZoom')).toEqual([['frame', 'zoom'], ['take_photo', 'zoom']])
   expect(detail('flash')).toEqual([['take_photo', 'flash']])
+  expect(detail('light')).toEqual([['light', 'level']])
+  expect(detail('exposure')).toEqual([['frame', 'exposure']])
   expect(detail('peek')).toEqual([['peek']])
   expect(detail('state')).toEqual([['camera_state']])
   expect(detail('inbox')).toEqual([])
@@ -258,4 +260,53 @@ test('take_photo shoots through the phone app and returns text plus the image', 
   expect(blocks.map(block => block.type)).toEqual(['text', 'image'])
   expect(blocks[0]?.text).toContain('Photo saved: /home/Pictures/SnapCam/ClaudeSnaps/iphone-')
   expect(blocks[1]?.source?.type).toBe('base64')
+})
+
+// Records CLI calls; every call answers with one framing line.
+function fakeFraming(on: On): string[][] {
+  const calls: string[][] = []
+  on('fs.exists', (_, e) => ({ value: e.path === CLI }))
+  on('process.run', (_, e) => {
+    const argv = [...e.argv]
+    if (argv[0] === CLI) calls.push(argv.slice(1))
+    const stdout = 'iPhone: wide 1x, flash on, light 0.5, exposure -1 EV\n'
+
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('command.register', () => ({ value: { command: 'snap' } }))
+  on('tool.register', (_, e) => ({ value: { tool: `mcp__snap-cam__${(e as unknown as Spec).name}` } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  return calls
+}
+
+type Done = { result?: { type: string; text?: string }[]; deny?: string }
+
+test('light sets a level, 0 turns it off, out-of-range levels are clamped', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const calls = fakeFraming(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false })
+
+  const lit = (await $.tool.call({ tool: 'mcp__snap-cam__light', level: 0.5 } as never)) as unknown as Done
+  await $.tool.call({ tool: 'mcp__snap-cam__light', level: 0 } as never)
+  await $.tool.call({ tool: 'mcp__snap-cam__light', level: 7 } as never)
+  const bad = (await $.tool.call({ tool: 'mcp__snap-cam__light' } as never)) as unknown as Done
+
+  expect(calls).toEqual([['light', '0.5'], ['light', 'off'], ['light', '1']])
+  expect(lit.result?.[0]?.text).toContain('light 0.5')
+  expect(bad.deny).toContain('level')
+})
+
+test('frame sets exposure alone or after lens and zoom', async ($, on) => {
+  mock.env(on, { HOME: '/home', SNAPCAM_CLI: CLI })
+  const calls = fakeFraming(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false })
+
+  const done = (await $.tool.call({ tool: 'mcp__snap-cam__frame', exposure: -1 } as never)) as unknown as Done
+  await $.tool.call({ tool: 'mcp__snap-cam__frame', zoom: 2, exposure: 0.5 } as never)
+  await $.tool.call({ tool: 'mcp__snap-cam__frame' } as never)
+
+  expect(calls).toEqual([['exposure', '-1'], ['frame', '--zoom', '2'], ['exposure', '0.5'], ['frame']])
+  expect(done.result?.[0]?.text).toContain('Framing set')
+  expect(done.result?.[0]?.text).toContain('exposure -1 EV')
 })

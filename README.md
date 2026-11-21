@@ -56,9 +56,12 @@ ignored. The image comes back in the tool result; the text says which path was u
 With the SnapCam iPhone app the model also gets:
 
 - `peek` — one current viewfinder frame, not saved, to check the framing;
-- `frame` (`lens`, `zoom`) — move the live camera without shooting; no inputs reads it;
-- `camera_state` — lenses, zoom range, sizes, flash, the live framing and how many phone
-  shots wait in the tray;
+- `frame` (`lens`, `zoom`, `exposure` in EV) — move the live camera without shooting; no
+  inputs reads it;
+- `light` (`level` 0..1, 0 = off) — the phone's steady light; same as `flash` `on`, which
+  stays lit until turned off; refused while the phone is hot;
+- `camera_state` — lenses, zoom range, sizes, flash, light and exposure ranges, the live
+  framing (with light and exposure) and how many phone shots wait in the tray;
 - `recent_photos` (`count`, default 1, at most 5) — the newest photos of the SnapCam
   history (the Mac app's save folder, default `~/Pictures/SnapCam/Default`), whatever took
   them, newest first, as images. It only reads: the tray keeps its photos.

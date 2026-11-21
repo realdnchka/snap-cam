@@ -68,11 +68,12 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 
 | Command | Mac app | iPhone screen | Camera Control | Claude pane | CLI | MCP | App Intents |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| shoot | ✅ | ✅ shutter; to the Mac inbox | 🔜 full press | 🔜 button | ✅ `capture` | ✅ `take_photo` | 🔜 «Снять фото» |
-| frame: lens | ✅ inspector, live | ✅ lens buttons | 🔜 system zoom slider switches lenses | 🔜 | ✅ `frame --lens`, `capture --lens` | ✅ `frame lens`, `take_photo lens` | 🔜 |
-| frame: zoom | ✅ inspector, live | ✅ pinch | 🔜 system slider | 🔜 | ✅ `frame --zoom`, `capture --zoom` | ✅ `frame zoom`, `take_photo zoom` | 🔜 |
-| flash | ✅ inspector, live | ✅ flash menu | 🔜 picker | 🔜 | ✅ `flash`, `capture --flash` | ✅ `take_photo flash` | 🔜 |
-| exposure | 🔜 | 🔜 | 🔜 system slider | 🔜 | 🔜 | 🔜 | — |
+| shoot | ✅ | ✅ shutter; to the Mac inbox | ✅ full press | 🔜 button | ✅ `capture` | ✅ `take_photo` | 🔜 «Снять фото» |
+| frame: lens | ✅ inspector, live | ✅ lens buttons | ✅ system zoom slider switches lenses | 🔜 | ✅ `frame --lens`, `capture --lens` | ✅ `frame lens`, `take_photo lens` | 🔜 |
+| frame: zoom | ✅ inspector, live | ✅ pinch, slider | ✅ system slider | 🔜 | ✅ `frame --zoom`, `capture --zoom` | ✅ `frame zoom`, `take_photo zoom` | 🔜 |
+| flash | ✅ inspector, live; on = light | ✅ flash menu; on = light | ✅ picker | 🔜 | ✅ `flash`, `capture --flash` | ✅ `take_photo flash`; on = light | 🔜 |
+| light | ✅ inspector brightness, live | ✅ brightness slider while on | ✅ brightness slider | 🔜 | ✅ `light` | ✅ `light level` | 🔜 |
+| exposure | ✅ inspector, live | ✅ slider | ✅ system slider | 🔜 | ✅ `exposure` | ✅ `frame exposure` | — |
 | live video | 🔜 stream | ✅ viewfinder | — | 🔜 few fps | — | — | — |
 | peek | ✅ inspector | — | — | 🔜 | ✅ `peek --preview` | ✅ `peek` | — |
 | state / caps | ✅ | ✅ | — | 🔜 | ✅ `state`, `caps`, `status` | ✅ `camera_state` | — |

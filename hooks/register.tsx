@@ -322,14 +322,31 @@ async function recentPhotos($: EngineInterface, count: number): Promise<Block[]>
   return [{ type: 'text', text }, ...blocks]
 }
 
-async function frame($: EngineInterface, lens?: Lens, zoom?: number): Promise<Block[]> {
+async function frame($: EngineInterface, lens?: Lens, zoom?: number, exposure?: number): Promise<Block[]> {
   const cli = await needCli($, await paths($))
-  const args = ['frame', ...(lens ? ['--lens', lens] : []), ...(zoom !== undefined ? ['--zoom', String(zoom)] : [])]
-  const run = await runCli($, cli, args, 30)
-  if (run.exitCode !== 0) throw new Error(cliFailure(run))
-  const changed = lens || zoom !== undefined ? 'Framing set' : 'Framing now'
+  const moves = lens || zoom !== undefined
+  let run: Cli | undefined
+  if (moves || exposure === undefined) {
+    const args = ['frame', ...(lens ? ['--lens', lens] : []), ...(zoom !== undefined ? ['--zoom', String(zoom)] : [])]
+    run = await runCli($, cli, args, 30)
+    if (run.exitCode !== 0) throw new Error(cliFailure(run))
+  }
+  if (exposure !== undefined) {
+    run = await runCli($, cli, ['exposure', String(exposure)], 30)
+    if (run.exitCode !== 0) throw new Error(cliFailure(run))
+  }
+  const changed = moves || exposure !== undefined ? 'Framing set' : 'Framing now'
 
-  return [{ type: 'text', text: `${changed} (live; nothing shot): ${run.stdout.trim()}` }]
+  return [{ type: 'text', text: `${changed} (live; nothing shot): ${run?.stdout.trim() ?? ''}` }]
+}
+
+// 0 turns the light off; the phone clamps to its maximum.
+async function light($: EngineInterface, level: number): Promise<Block[]> {
+  const cli = await needCli($, await paths($))
+  const run = await runCli($, cli, ['light', level > 0 ? String(level) : 'off'], 30)
+  if (run.exitCode !== 0) throw new Error(cliFailure(run))
+
+  return [{ type: 'text', text: `Light ${level > 0 ? 'set' : 'off'} (live; nothing shot): ${run.stdout.trim()}` }]
 }
 
 async function peek($: EngineInterface): Promise<Block[]> {
@@ -532,7 +549,11 @@ export const register: Register = on => {
         properties: {
           camera: { type: 'string', enum: ['iphone', 'desk'], description: 'iphone or desk (Desk View, top-down)' },
           delay_seconds: { type: 'number', minimum: 0, maximum: 60, description: 'Wait before the shot; 0 = right away' },
-          flash: { type: 'string', enum: FLASHES, description: "iPhone only; default: the user's choice" },
+          flash: {
+            type: 'string',
+            enum: FLASHES,
+            description: "iPhone only; on = the steady light (see light), auto = flash when dark; default: the user's choice",
+          },
           lens: { type: 'string', enum: LENSES, description: 'iPhone app only; default: picked by zoom' },
           zoom: {
             type: 'number',
@@ -556,9 +577,9 @@ export const register: Register = on => {
     await $.tool.register({
       name: 'frame',
       description:
-        "Change the live framing of the user's iPhone camera (SnapCam app) without shooting: lens and/or zoom. " +
-        'The phone screen and the Mac follow. No inputs reads the current framing. Zoom wins over lens; a lens ' +
-        "alone moves to that lens's own zoom; limits come from the phone (see camera_state). Then peek to check.",
+        "Change the live framing of the user's iPhone camera (SnapCam app) without shooting: lens, zoom and/or " +
+        'exposure. The phone screen and the Mac follow. No inputs reads the current framing. Zoom wins over lens; a ' +
+        "lens alone moves to that lens's own zoom; limits come from the phone (see camera_state). Then peek to check.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -569,7 +590,34 @@ export const register: Register = on => {
             maximum: 25,
             description: 'Camera-app zoom (0.5, 1, 2, 5…), clamped to what the phone has',
           },
+          exposure: {
+            type: 'number',
+            minimum: -100,
+            maximum: 100,
+            description: "Exposure bias in EV (-1 darker, +1 brighter, 0 = neutral), clamped to the phone's range",
+          },
         },
+      },
+      isDeferred: false,
+    })
+    await $.tool.register({
+      name: 'light',
+      description:
+        "Turn the user's iPhone light (the steady torch, SnapCam app) on at a brightness, or off with 0. " +
+        'Same as flash on; photos taken while it is lit fire no extra flash. It stays lit until turned off, so ' +
+        'turn it off when done. The phone refuses while it is too hot (camera_state says "light off (hot)"). ' +
+        'Shoots nothing; peek to check.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          level: {
+            type: 'number',
+            minimum: 0,
+            maximum: 1,
+            description: "Brightness 0..1 of the phone's maximum; 0 = off",
+          },
+        },
+        required: ['level'],
       },
       isDeferred: false,
     })
@@ -577,7 +625,8 @@ export const register: Register = on => {
       name: 'camera_state',
       description:
         "What the user's iPhone camera (SnapCam app) can do and how it is set now: lenses, zoom range, photo " +
-        'sizes, flash modes, the live lens/zoom/flash, and how many phone-shot photos wait in the tray above the prompt. ' +
+        'sizes, flash modes, light and exposure ranges, the live lens/zoom/flash/light/exposure, and how many ' +
+        'phone-shot photos wait in the tray above the prompt. ' +
         'Shoots nothing.',
       inputSchema: { type: 'object', properties: {} },
       isDeferred: false,
@@ -640,11 +689,19 @@ export const register: Register = on => {
   on('tool.call', { tool: `${TOOL_PREFIX}peek` }, ($, e) => answer(peek($))).catch(hookFailed)
   on('tool.call', { tool: `${TOOL_PREFIX}camera_state` }, ($, e) => answer(cameraState($))).catch(hookFailed)
   on('tool.call', { tool: `${TOOL_PREFIX}frame` }, ($, e) => {
-    const input = e as unknown as { lens?: string; zoom?: number }
+    const input = e as unknown as { lens?: string; zoom?: number; exposure?: number }
     const lens = LENSES.find(l => l.toLowerCase() === input.lens?.toLowerCase())
     const zoom = Number(input.zoom) > 0 ? Number(input.zoom) : undefined
+    const bias = input.exposure === undefined ? NaN : Number(input.exposure)
+    const exposure = Number.isFinite(bias) ? Math.min(Math.max(bias, -100), 100) : undefined
 
-    return answer(frame($, lens, zoom))
+    return answer(frame($, lens, zoom, exposure))
+  }).catch(hookFailed)
+  on('tool.call', { tool: `${TOOL_PREFIX}light` }, ($, e) => {
+    const level = Number((e as unknown as { level?: number }).level)
+    if (!Number.isFinite(level)) return { deny: 'SnapCam: light needs a level from 0 (off) to 1' }
+
+    return answer(light($, Math.min(Math.max(level, 0), 1)))
   }).catch(hookFailed)
   on('tool.call', { tool: `${TOOL_PREFIX}recent_photos` }, ($, e) => {
     const asked = Math.floor(Number((e as unknown as { count?: number }).count))
