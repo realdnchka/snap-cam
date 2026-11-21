@@ -182,8 +182,8 @@ export const contract = {
         "status" : "available"
       },
       "inbox" : {
-        "detail" : "Inbox section, Dock badge",
-        "status" : "available"
+        "detail" : "phone shots go to history; the queue is for Claude",
+        "status" : "notApplicable"
       },
       "liveVideo" : {
         "detail" : "stream",
