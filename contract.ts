@@ -266,7 +266,7 @@ export const contract = {
         "status" : "available"
       },
       "inbox" : {
-        "detail" : "mirror strip; remove",
+        "detail" : "offline queue (unsent shots)",
         "status" : "available"
       },
       "liveVideo" : {
