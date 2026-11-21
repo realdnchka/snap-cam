@@ -43,7 +43,7 @@ const CLI_USAGE = 64
 const CLI_IN_APP = 'SnapCam.app/Contents/Helpers/snapcam-cli'
 const CLI_TIMEOUT_S = 25
 // A wireless iPhone can take 10–20 s to appear as a Mac camera.
-const MAC_TIMEOUT_S = 45
+const MAC_TIMEOUT_S = 55
 // User shots fire at once: they aim before pressing.
 const MANUAL_COUNTDOWN_S = 0
 const CLI_UNAVAILABLE = 69
