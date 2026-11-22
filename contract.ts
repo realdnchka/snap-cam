@@ -251,7 +251,7 @@ export const contract = {
         "status" : "available"
       },
       "liveVideo" : {
-        "detail" : "iPhone live view, Mac camera preview",
+        "detail" : "iPhone live view (turbo, enhance), Mac camera preview",
         "status" : "available"
       },
       "pairing" : {
