@@ -2,12 +2,15 @@ import { mock } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On, RenderSurface } from 'claude-code'
 
+import { recentName } from './cli'
+
 export const CLI = '/cli/snapcam-cli'
 export const HOME = '/Users/me'
 export const LIVE = `${HOME}/Library/Application Support/snap-cam/live`
 export const A = 'aaaaaaaa-0000-4000-8000-000000000001'
 export const ORIGINAL = '/Pictures/SnapCam/Default/SnapCam 2026-11-22 at 10.00.01.heic'
-export const RECENT = 'recent-SnapCam-2026-11-22-at-10.00.01-heic.jpg'
+export const RECENT = recentName(ORIGINAL)
+export const MODEL_OFF = 'Apple Intelligence is off. Turn it on in System Settings > Apple Intelligence & Siri, then try again.'
 
 const STATE = {
   appVersion: '1',
@@ -32,7 +35,9 @@ const STATE = {
   ],
 }
 
-export type Fake = { calls: string[][]; runs: string[][]; spawns: string[][]; stopped: number; blits: unknown[]; opened: boolean }
+export type Fake = {
+  calls: string[][]; runs: string[][]; spawns: string[][]; stopped: number; blits: unknown[]; opened: boolean; reads: string[]
+}
 
 export type FakeOptions = {
   surfaces?: () => RenderSurface[]
@@ -54,6 +59,14 @@ export type FakeOptions = {
   recent?: string[]
   // `ask` fails as without Apple Intelligence.
   askFails?: boolean
+  // The live child ends by itself after its lines, saying this on stderr.
+  exit?: { code: number; stderr: string }
+  // Microtask turns the `ocr` answer takes.
+  ocrDelay?: number
+  // No phone-shutter photos waiting.
+  noInbox?: boolean
+  // SnapCam for Mac isn't installed.
+  noCli?: boolean
 }
 
 const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -66,12 +79,16 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
   const recent = options.recent ?? [ORIGINAL]
   let stateFails = options.stateFails ?? 0
   const surfaces = options.surfaces ?? (() => ['desktop'])
-  const fake: Fake = { calls: [], runs: [], spawns: [], stopped: 0, blits: [], opened: false }
+  const fake: Fake = { calls: [], runs: [], spawns: [], stopped: 0, blits: [], opened: false, reads: [] }
   mock.env(on, { HOME, SNAPCAM_CLI: CLI })
-  on('fs.exists', (_, e) => ({ value: e.path === CLI || e.path.startsWith(LIVE) || e.path.includes('/ClaudeSnaps/') || e.path.includes('/thumbs/') }))
-  on('fs.read', () => ({ value: { base64: 'AA==' } }))
+  on('fs.exists', (_, e) => ({ value: (e.path === CLI && !options.noCli) || e.path.startsWith(LIVE) || e.path.includes('/ClaudeSnaps/') || e.path.includes('/thumbs/') }))
+  on('fs.read', (_, e) => {
+    fake.reads.push(e.path)
+    return { value: { base64: 'AA==' } }
+  })
+  on('fs.stat', () => ({ value: { size: 10 } }) as never)
   on('fs.write', () => ({ value: undefined }))
-  on('process.run', (_, e) => {
+  on('process.run', async (_, e) => {
     const argv = [...e.argv]
     fake.runs.push(argv)
     if (argv[0] !== CLI) return ok('')
@@ -85,13 +102,17 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
         }
         return ok(JSON.stringify(state))
       case 'recent': return ok(JSON.stringify({ folder: '/Pictures/SnapCam/Default', items: recent.map(original => ({ original })) }))
-      case 'ocr': return ok(JSON.stringify({ photos: [{ path: ORIGINAL, paragraphs: [{ text: 'Hello from the receipt', area: 'top left' }] }] }))
+      case 'ocr':
+        for (let i = 0; i < (options.ocrDelay ?? 0); i += 1) await Promise.resolve()
+        return ok(JSON.stringify({ photos: [{ path: ORIGINAL, paragraphs: [{ text: 'Hello from the receipt', area: 'top left' }] }] }))
       case 'ask':
         if (askFails) {
-          return { value: { exitCode: 69, stdout: '', stderr: 'snapcam-cli: Apple Intelligence is off.', isStdoutTruncated: false, isStderrTruncated: false } }
+          return { value: { exitCode: 69, stdout: '', stderr: `snapcam-cli: ${MODEL_OFF}`, isStdoutTruncated: false, isStderrTruncated: false } }
         }
         return ok(JSON.stringify({ answer: 'A grocery receipt.', question: 'q', photos: [ORIGINAL], text: '' }))
-      case 'inbox': return ok(JSON.stringify({ items: [{ id: A, original: '/Pictures/SnapCam/Default/a.heic' }], remaining: 1 }))
+      case 'inbox':
+        if (options.noInbox) return ok(JSON.stringify({ items: [], remaining: 0 }))
+        return ok(JSON.stringify({ items: [{ id: A, original: '/Pictures/SnapCam/Default/a.heic' }], remaining: 1 }))
       case 'frame': return framing(argv.includes('--lens') ? { lens: argv[argv.indexOf('--lens') + 1] } : { zoom: Number(argv[argv.indexOf('--zoom') + 1]) })
       case 'flash': return framing({ flash: argv[2] })
       case 'light': return framing({ light: argv[2] === 'off' ? 0 : Number(argv[2]) })
@@ -115,6 +136,10 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
         yield { stream: 'stdout' as const, text: JSON.stringify({ seq, preview: `${LIVE}/live.jpg`, png, width: 640, height: 480, lens: live.lens, zoom: live.zoom, phone: 'iPhone', ms: 9 }) + '\n' }
       }
       for (const line of tail) yield { stream: 'stdout' as const, text: JSON.stringify(line) + '\n' }
+      if (options.exit) {
+        yield { stream: 'stderr' as const, text: `${options.exit.stderr}\n` }
+        return { value: { code: options.exit.code, signal: null } }
+      }
       // Stays open like the real CLI until the mod ends the loop.
       await new Promise<void>(done => next.signal.addEventListener('abort', () => done()))
     } finally {
@@ -153,10 +178,73 @@ const PANE = {
   props: { title: 'SnapCam', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
-export async function openPane($: Engine, surface: 'desktop' | 'terminal' = 'desktop') {
+export async function openPane($: Engine, surface: RenderSurface = 'desktop') {
   await $.session.start({ cwd: '/', surface, isInteractive: true })
   await $.command.run({ command: 'snap', args: 'pane' } as never)
 
   return $.ui.mount({ ...PANE, surface } as never)
 }
 
+// `events` orders kills and runs, so a test sees what came first.
+export type Stub = { $: never; runs: string[][]; spawns: string[][]; kills: number; events: string[] }
+
+// A bare $ for the test's own copy of live.tsx, which the kit's engine doesn't load.
+export function stubEngine(): Stub {
+  const state = new Map<string, { value: unknown; version: number }>()
+  const stub: Stub = { $: undefined as never, runs: [], spawns: [], kills: 0, events: [] }
+  const spawn = ({ argv }: { argv: string[] }) => {
+    stub.spawns.push(argv.slice(1))
+    let end: (() => void) | null = null
+    const ended = new Promise<void>(done => (end = done))
+    const stream = {
+      [Symbol.asyncIterator]: () => stream,
+      next: async () => (await ended, { done: true as const, value: undefined }),
+      return: async () => {
+        // The child dies a beat after the kill, as a real one does.
+        await Promise.resolve()
+        stub.kills += 1
+        stub.events.push('kill')
+        end?.()
+        return { done: true as const, value: undefined }
+      },
+      result: ended.then(() => ({ code: 0, signal: null })),
+    }
+    return stream
+  }
+  const engine = {
+    env: { get: async (name: string) => ({ HOME, SNAPCAM_CLI: CLI })[name] },
+    fs: { exists: async (path: string) => path === CLI },
+    process: {
+      run: async (argv: string[]) => {
+        stub.runs.push([...argv])
+        stub.events.push(argv.join(' '))
+        return { exitCode: 0, stdout: '', stderr: '' }
+      },
+      spawn,
+    },
+    state: {
+      get: async (ref: object) => state.get(JSON.stringify(ref)) ?? { value: undefined, version: 0 },
+      set: async (ref: object, value: unknown) => {
+        const version = (state.get(JSON.stringify(ref))?.version ?? 0) + 1
+        state.set(JSON.stringify(ref), { value, version })
+        return { isSet: true, version }
+      },
+    },
+    ui: {
+      open: async () => ({ isPlaced: true }),
+      panes: async () => [{ id: 'snap-live', title: 'SnapCam', isShown: true, isFocused: false, isPlaced: true }],
+      redraw: async () => {},
+    },
+    session: { surfaces: async () => ['desktop'] },
+    // Sleeps never end: a close waits for the kill, not the timeout.
+    clock: { now: async () => 0, sleep: () => new Promise<void>(() => {}) },
+  }
+  stub.$ = engine as never
+
+  return stub
+}
+
+// Lets the module's voided promises settle.
+export async function settle(rounds = 20): Promise<void> {
+  for (let i = 0; i < rounds; i += 1) await Promise.resolve()
+}

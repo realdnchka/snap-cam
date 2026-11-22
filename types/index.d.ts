@@ -31,7 +31,8 @@ export type CameraInfo = {
   exposureMin?: number
   exposureMax?: number
   framing?: Framing
-  sources: { mode: SnapMode; name: string }[]
+  // `id` only for external cameras, one entry each.
+  sources: { mode: SnapMode; name: string; id?: string }[]
 }
 
 // A photo of the save folder in the pane's gallery.
@@ -50,11 +51,14 @@ declare module 'claude-code' {
       inbox: InboxItem[]
       paneTab: PaneTab
       paneCamera: SnapMode
+      paneSource: string
       liveFrame: LiveFrame
       cameraInfo: CameraInfo | null
       gallery: RecentItem[]
       paneNote: string
       paneText: string
+      // Attached shot preview path → its original.
+      shotOriginals: Record<string, string>
     }
   }
 }

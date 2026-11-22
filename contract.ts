@@ -252,8 +252,8 @@ export const contract = {
         "status" : "available"
       },
       "focus" : {
-        "detail" : "click in the live view",
-        "status" : "planned"
+        "detail" : "click in the live view; ⌥-click = AE/AF lock; View ▸ Focus on Center, Lock, Reset",
+        "status" : "available"
       },
       "formatSize" : {
         "detail" : "inspector (format, size), shared with the iPhone; quality: phone default",

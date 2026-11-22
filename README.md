@@ -46,10 +46,12 @@ thumbnail above the prompt. On send, the mod tells the model to open the photo w
 - `/snap pane` or `🎥 Панель` — the SnapCam pane beside the chat. Tab «Камера»: live video
   (~5 fps, raw frames of the iPhone stream or a Mac camera; Svg on the desktop; in a terminal
   an Image the frames blit into: kitty/Ghostty read the PNG file, iTerm2 3.5+ gets its bytes;
-  elsewhere the pane shows text), `📸 Снять` (to the tray), camera switch, and for
-  the iPhone lens, zoom −/+, flash, light and exposure. Tab «Галерея»: phone photos in the
-  inbox and the last 8 photos of the save folder; a press attaches one to the next message
-  (✓), again detaches it. Video runs only while the pane shows the camera tab;
+  elsewhere the pane shows text), `📸 Снять` (to the tray), camera switch (iPhone, Mac
+  cameras and every external camera by name), and for the iPhone lens, zoom −/+, flash, light
+  and exposure. Tab «Галерея»: phone photos in the inbox and the last 8 photos of the save
+  folder; a press attaches one to the next message (✓), again detaches it. `📝 Текст` reads
+  the text, `✨ Спросить` (or a question + Enter) asks the Mac's model, both on the newest
+  attached photo or the last shot. Video runs only while the pane shows the camera tab;
 - `/snap list` — the sources SnapCam for Mac sees (`snapcam-cli state`);
 - `/snap caps` — what the phone's camera can do; `/snap status`; `/snap pair` — opens
   pairing on the Mac and prints the code.

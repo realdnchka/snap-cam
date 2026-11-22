@@ -71,7 +71,7 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 | shoot | ✅ iPhone or a Mac camera, source picker | ✅ shutter; to the Mac inbox | ✅ full press | ✅ `shoot`, `camera` picks the source | ✅ `capture`, `capture --source` | ✅ `take_photo camera` | 🔜 «Снять фото» |
 | frame: lens | ✅ inspector, live | ✅ zoom ruler stops | ✅ system zoom slider switches lenses | ✅ `lens:*` buttons, live | ✅ `frame --lens`, `capture --lens` | ✅ `frame lens`, `take_photo lens` | 🔜 |
 | frame: zoom | ✅ inspector, live | ✅ pinch, zoom ruler | ✅ system slider | ✅ `zoom-` `zoom+`, live | ✅ `frame --zoom`, `capture --zoom` | ✅ `frame zoom`, `take_photo zoom` | 🔜 |
-| focus / AE-AF lock | 🔜 click in the live view | ✅ tap; hold = AE/AF lock | — | — | — | — | — |
+| focus / AE-AF lock | ✅ click in the live view; ⌥-click = AE/AF lock; View ▸ Focus on Center, Lock, Reset | ✅ tap; hold = AE/AF lock | — | — | — | — | — |
 | flash | ✅ inspector, live; on = light | ✅ flash dial; on = light | ✅ picker | ✅ `flash` cycles; on = light | ✅ `flash`, `capture --flash` | ✅ `take_photo flash`; on = light | 🔜 |
 | light | ✅ inspector brightness, live | ✅ brightness slider while on | ✅ brightness slider | ✅ `light` steps | ✅ `light` | ✅ `light level` | 🔜 |
 | exposure | ✅ inspector, live | ✅ exposure ruler | ✅ system slider | ✅ `ev-` `ev0` `ev+` | ✅ `exposure` | ✅ `frame exposure` | — |

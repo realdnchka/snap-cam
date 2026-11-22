@@ -12,10 +12,11 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 |---|---|
 | `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.11.1) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API); imports `cli.ts` (CLI helpers, `shoot`) and `live.tsx` (the pane) |
-| `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}`; pane (0.10.0): `inbox, paneTab, paneCamera, liveFrame, cameraInfo, gallery, paneNote, paneText` |
+| `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}`; pane (0.10.0): `inbox, paneTab, paneCamera, paneSource, liveFrame, cameraInfo, gallery, paneNote, paneText` |
 | `README.md` | user-facing summary |
-| `hooks/pane.test.tsx`, `hooks/pane.fake.ts` | pane tests over a fake CLI with a fake `live` stream |
-| `hooks/cli.test.ts` | `timingNote`: stage order, skipped stages, countdown taken out of the CLI and mod totals; pane reasons in Russian |
+| `hooks/pane.test.tsx`, `hooks/pane.fake.ts` | pane tests over a fake CLI with a fake `live` stream; `stubEngine` runs the test's own copy of `live.tsx` for the `ui.close` hook |
+| `hooks/cli.test.ts` | `timingNote`: stage order, skipped stages, countdown taken out of the CLI and mod totals; pane reasons in Russian; pane OCR text; `recentName` |
+| `tsconfig.json`, `scripts/typecheck.sh` | type check against the newest `claude-code.d.ts` on this Mac (see Install / update) |
 | `contract.ts` + `hooks/contract.test.ts` | generated camera contract (ADR 0003); `claude plugin test .` checks every ✅ MCP cell names registered tools and inputs, plus the inbox tray and `recent_photos` against a fake CLI, and that every ✅ Claude pane cell names keys the pane draws |
 
 Runtime state (outside the repo): `~/Library/Application Support/snap-cam/`
@@ -87,9 +88,10 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   `recent_photos(count?)` (0.8.9, replaces `take_inbox`; `recent N --preview-dir
   recent-staging/<stamp>-<n> --preview-size 2400 --json`, default 1, cap 5): the newest photos of the Mac
   app's save folder, any origin (phone shutter, Mac, CLI), previews moved to
-  `ClaudeSnaps/` under `recentName(original)` from `cli.ts` (`recent-<stem, chat-safe>[-<ext>].jpg`,
-  the extension kept unless JPEG, so `IMG 1.heic` and `IMG 1.jpg` differ; the pane's gallery uses
-  the same name; the mod adds `-2` only if two still clash in one call); items with `error`
+  `ClaudeSnaps/` under `recentName(original)` from `cli.ts` (`recent-<stem, chat-safe>[-<ext>]-<hash6>.jpg`,
+  the extension kept unless JPEG and a 6-hex FNV-1a of the full original path, so names that slug
+  alike (`IMG 1.jpg`, `IMG-1.jpg`) still differ and stay the same on every call; the pane's
+  gallery uses the same name); items with `error`
   (CLI from snapcam-app `fix/sprint-1`) are listed as unreadable, the rest still come; text with paths, origin (from the
   app's `com.realdnchka.snapcam.origin` xattr; unknown for older files) and «also in the
   tray» + one image block each. Reads only: the inbox and the tray are untouched; the
@@ -135,17 +137,28 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   original, every 15 s while shown) toggles a sips 2400 px copy `recentName(original)` in
   `pending`. `📝 Текст` (`read`) runs `ocr … --json`, `✨ Спросить` (`ask`, or Enter in the
   `question` Input, not on mobile; empty summarizes) runs `ask … --json [--question Q]`, both on
-  the newest photo attached from the gallery or else `--recent 1`, with `READ_TIMEOUT_S`; the answer goes
-  to the `paneText` atom under the buttons («Читаю…» while it runs, one at a time). Polls (`state` every 10 s while the camera tab shows, `recent`) pass
+  the newest attached photo (a `📸 Снять`/band shot by its original from `shotOriginals` while
+  the gallery doesn't list it yet; then gallery, shot or «Входящие с iPhone» in the gallery's
+  newest-first order, then the inbox's) or else `--recent 1`, with `READ_TIMEOUT_S`; without
+  snapcam-cli both say «SnapCam для Mac не установлен» in the note; the answer goes to the
+  `paneText` atom under the buttons («Читаю…» / «Думаю…» while it runs, one at a time; OCR as
+  `Фото: <name>` + lines, no area tags), and hides once the attached set changes. Polls (`state` every 10 s while the camera tab shows, `recent`) pass
   `--no-launch`; only the first `state` after an open and the `live` child may start the app.
   Frames go to `live/<id per module load>/` (removed on close), so sessions don't share them;
   the first start per module load sweeps sibling folders untouched for 10 min (`find -mmin +10`),
   left by crashed or killed sessions; a running `snapcam-cli live` touches its folder every poll
-  (errors too) and recreates it if swept. The camera cycle also offers external cameras `state`
-  lists (`--source external`; not in the MCP enums). Pane and band messages are Russian
-  (`paneFailure`: prefix by exit code, known CLI reasons translated, the app's own pass through;
-  `ask` blames Apple Intelligence only for reasons that aren't known transport ones);
-  MCP denies stay English (`cliFailure`).
+  (errors too) and recreates it if swept. That needs the CLI of snapcam-app `fix/leftovers-48`
+  (protocol 9): an older CLI writes only on frames and never recreates the folder, so a session
+  whose stream errors for over 10 min can lose its folder to another session's sweep. A close
+  awaits the child's kill (≤ 2 s) before `rm -rf`, so a poll in flight can't bring it back.
+  The camera cycle also offers every external camera `state` lists, by id (`--source <id>`,
+  the state's name on the button and status line, `paneSource` atom; not in the MCP enums);
+  `last-mode.txt` may say `external` and Fast Capture then shoots the first one.
+  Pane and band messages are Russian (`paneFailure`: model/OCR answers that explain themselves
+  — Apple Intelligence off/not ready/unsupported, no text, declined, language, too long,
+  `No photos in …` — alone; others prefixed by exit code with known CLI reasons translated;
+  the app's own pass through; `SHORT` names cameras in the band); MCP denies stay English
+  (`cliFailure`, `SOURCES.title`).
   Terminal: a file PNG source first; a refused blit switches to bytes (iTerm2), 10 refusals in a
   row stop blitting. The video's rows leave 10 for the controls. Errors show over the frozen
   frame; a pane note is cleared by the next success of whatever wrote it. Pane cells of ADR 0003 name control keys; `contract.test.ts` checks each against
@@ -197,6 +210,11 @@ Desk View from video frames, the Continuity black-frame check.
 - Give gating hooks a `.catch`; `next.error.{kind,message}` explains failures.
 - `$.process.run` time in flight doesn't count toward a hook's budget.
 - State values a drawing reads live in atoms declared in `types/index.d.ts`.
+- The test kit (2.1.330) has no `$.ui.close` at run time and `ui.unmount()` raises no `ui.close`;
+  a test also imports its own copy of a module, apart from the engine's. The `ui.close` hook is
+  tested by taking it from `registerLive` and running it on `stubEngine()` (`pane.fake.ts`).
+- Test files import siblings without `.ts`/`.tsx` (tsc refuses the suffix without
+  `allowImportingTsExtensions`); the engine resolves both.
 
 ## Install / update procedure (agreed with the user)
 
@@ -209,6 +227,14 @@ On every change:
 
 1. bump `version` in `.claude-plugin/plugin.json`;
 2. `claude plugin validate ~/Dev/snapcam/snap-cam`;
+   `scripts/typecheck.sh` (tsc must print no errors): it picks the newest
+   `claude-code.d.ts` by its `Written by Claude Code X` line among `.claude-plugin/types/`
+   (laid when a session hot-reloads the folder; gitignored) and the plugin-authoring skill's copies
+   in `/private/tmp/claude-$UID/bundled-skills/` (written when that skill loads), or takes
+   `CLAUDE_CODE_TYPES=<file>`; it extends `tsconfig.json` from a temp folder and runs
+   `npx typescript@5.9.3` (needs registry.npmjs.org) or `TSC=<tsc binary>`. Don't copy the types
+   into the repo. The desktop app's engine can be newer than `~/.local/bin/claude`; run
+   `claude plugin test` with the newest (`~/Library/Application Support/Claude/claude-code/<v>/*/claude.app/Contents/MacOS/claude`);
 3. `claude plugin marketplace update snapcam`, then in each install folder
    `claude plugin update snap-cam@snapcam --scope project`
    (outside the sandbox: it writes `~/.claude/plugins`);
@@ -223,9 +249,26 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 ## Open / unverified
 
-- 0.11.1 (branch `fix/leftovers-48` here and in snapcam-app): pane `read`/`ask` with Russian
-  errors (landing photos translated), external camera in the cycle, live-folder sweep that spares
-  running CLIs, `recentName`, `closeLive` test. Checked with `claude plugin test` only.
+- 0.11.1 (branch `fix/leftovers-48` here and in snapcam-app, board card «48 хвостов»):
+  - pane `📝 Текст` / `✨ Спросить` on the gallery (ADR 0003 pane cells ✅), on the attached
+    photo or `--recent 1`; Russian pane and band errors (`paneFailure`), MCP denies stay English;
+  - external cameras `state` lists join the pane's camera cycle, each by id and name;
+  - `live/<id>` folders of crashed sessions swept once per load (`find -mmin +10`), sparing running CLIs;
+    a close removes its folder only after the child is gone;
+  - one recent-photo name, `recentName(original)` with a path hash, for `recent_photos` and the gallery;
+  - needs snapcam-app `fix/leftovers-48` (protocol 9: focus from the Mac's live view); its `live`
+    prints a repeated error once and backs off 1→4 s, and a stream held only by the pane asks the
+    phone for max(preview side, 320) instead of 1920. With an older CLI an erroring session's
+    folder can be swept;
+  - band chips and gallery skip `Svg` on the terminal (the two old tsc errors);
+  - `tsconfig.json` + `scripts/typecheck.sh` against the newest `claude-code.d.ts` (2.1.330: no
+    errors); test imports without `.ts`;
+  - tests: `timingNote`, pane reasons, pane OCR text and copy names (`cli.test.ts`), `ui.close`
+    hook stops the stream and then removes `live/<id>` (and leaves other panes alone), close twice
+    kills once; live errors by exit code and from a dying child, one read at a time, inbox
+    targets, no question field on mobile, no Svg in the terminal band and preview pane, shots
+    from an external camera.
+  Checked with `claude plugin test` and `scripts/typecheck.sh` only; nothing run in a live pane.
 - 0.11.0 (branch `integ/five` here and in snapcam-app): turbo, design D, shot latency and the
   Claude pane together, plus tails fixes in the app; one protocol 8. Checked with `claude plugin
   test` and the app's unit tests and builds; nothing run on the iPhone yet.

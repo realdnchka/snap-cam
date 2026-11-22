@@ -1,8 +1,9 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { A, HOME, LIVE, ORIGINAL, RECENT, fakePaneMac as fakeMac, openPane } from './pane.fake.ts'
-import type { Fake } from './pane.fake.ts'
-import { closeLive } from './live.tsx'
+import { A, HOME, LIVE, MODEL_OFF, ORIGINAL, RECENT, fakePaneMac as fakeMac, openPane, settle, stubEngine } from './pane.fake'
+import type { Fake } from './pane.fake'
+import { recentName } from './cli'
+import { LIVE_PANE, closeLive, openLive, registerLive } from './live'
 
 test('the pane streams live frames while its camera tab shows, and stops when hidden', async ($, on) => {
   let shown = true
@@ -272,7 +273,6 @@ test('the band button opens the pane and starts the stream', async ($, on) => {
   await clock.advance(1000)
   expect(fake.opened).toBe(true)
   expect(fake.spawns).toHaveLength(1)
-
 })
 
 test('an app message the pane has no translation for passes through', async ($, on) => {
@@ -285,18 +285,63 @@ test('an app message the pane has no translation for passes through', async ($, 
   await ui.unmount()
 })
 
-// The kit can't raise ui.close and loads its own module copy, so the handler runs on a stub.
-test('closing the pane removes its frame folder', async () => {
-  const runs: string[][] = []
-  const engine = {
-    env: { get: async () => HOME },
-    process: { run: async (argv: string[]) => (runs.push(argv), { exitCode: 0, stdout: '', stderr: '' }) },
+// The kit can't raise ui.close; the hook runs on its own module copy.
+function closeHook() {
+  const hooks = new Map<string, Function>()
+  const register = (event: string, ...rest: Function[]) => {
+    hooks.set(event, rest.at(-1) as Function)
+    return { catch: () => undefined }
   }
-  await closeLive(engine as never)
-  const rm = runs.find(argv => argv[0] === 'rm') ?? []
-  expect(rm.slice(0, 2)).toEqual(['rm', '-rf'])
-  expect(rm[2]?.startsWith(`${LIVE}/`)).toBe(true)
-  expect(rm[2]?.length).toBeGreaterThan(`${LIVE}/`.length)
+  registerLive(register as never)
+  const hook = hooks.get('ui.close')
+  if (!hook) throw new Error('no ui.close hook')
+  return hook as (s: never, e: { id: string; origin: { kind: string } }, next: (e: unknown) => unknown) => Promise<unknown>
+}
+
+test('closing the pane stops the stream and removes its frame folder', async () => {
+  const hook = closeHook()
+  const stub = stubEngine()
+  await openLive(stub.$)
+  await settle()
+  expect(stub.spawns).toHaveLength(1)
+  const dir = stub.spawns[0]?.[2] ?? ''
+  expect(dir).toMatch(new RegExp(`^${LIVE}/[0-9a-f]{8}$`))
+
+  const passed: unknown[] = []
+  await hook(stub.$, { id: LIVE_PANE, origin: { kind: 'person' } }, e => passed.push(e))
+  expect(stub.kills).toBe(1)
+  expect(stub.runs).toContainEqual(['rm', '-rf', dir])
+  // A poll still running would bring the folder back: rm only after the child is gone.
+  expect(stub.events.indexOf(`rm -rf ${dir}`)).toBeGreaterThan(stub.events.indexOf('kill'))
+  expect(passed).toHaveLength(1)
+})
+
+test('closing another pane leaves the stream running', async () => {
+  const hook = closeHook()
+  const stub = stubEngine()
+  await openLive(stub.$)
+  await settle()
+  expect(stub.spawns).toHaveLength(1)
+
+  await hook(stub.$, { id: 'other', origin: { kind: 'person' } }, () => undefined)
+  await settle()
+  expect(stub.kills).toBe(0)
+  expect(stub.runs.some(argv => argv[0] === 'rm' && argv[1] === '-rf')).toBe(false)
+
+  await closeLive(stub.$)
+  await settle()
+  expect(stub.kills).toBe(1)
+})
+
+test('closing twice kills once and removes the folder each time', async () => {
+  const stub = stubEngine()
+  await openLive(stub.$)
+  await settle()
+  await closeLive(stub.$)
+  await closeLive(stub.$)
+  await settle()
+  expect(stub.kills).toBe(1)
+  expect(stub.runs.filter(argv => argv[0] === 'rm')).toHaveLength(2)
 })
 
 test('a pane gone from the list stops the stream and the command starts a new one', async ($, on) => {
@@ -324,25 +369,41 @@ test('a pane gone from the list stops the stream and the command starts a new on
   expect(fake.spawns).toHaveLength(2)
 })
 
-test('an external camera that state lists joins the source cycle', async ($, on) => {
+test('every external camera that state lists joins the source cycle by its id and name', async ($, on) => {
   const clock = mock.clock(on)
-  const fake = fakeMac(on, () => true, { sources: [{ id: 'usb', kind: 'external', name: 'USB Camera', selected: false }] })
+  const externals = [
+    { id: 'usb', kind: 'external', name: 'USB Camera', selected: false },
+    { id: 'cap', kind: 'external', name: 'Capture Card', selected: false },
+  ]
+  const fake = fakeMac(on, () => true, { sources: externals })
   const ui = await openPane($)
   await clock.advance(1000)
 
   await ui.press({ key: 'camera' })
   await clock.advance(1000)
-  expect((await ui.find({ key: 'camera' }))?.props.label).toContain('внешняя камера')
+  expect((await ui.find({ key: 'camera' }))?.props.label).toBe('↻ USB Camera')
   await ui.press({ key: 'camera' })
   await clock.advance(1000)
-  const spawn = fake.spawns.at(-1) ?? []
-  expect(spawn[spawn.indexOf('--source') + 1]).toBe('external')
+  let spawn = fake.spawns.at(-1) ?? []
+  expect(spawn[spawn.indexOf('--source') + 1]).toBe('usb')
+  expect((await ui.find({ key: 'status' }))?.text).toContain('USB Camera')
+  expect((await ui.find({ key: 'camera' }))?.props.label).toBe('↻ Capture Card')
+
+  await ui.press({ key: 'shoot' })
+  const capture = fake.calls.find(args => args[0] === 'capture') ?? []
+  expect(capture[capture.indexOf('--source') + 1]).toBe('usb')
+
+  await ui.press({ key: 'camera' })
+  await clock.advance(1000)
+  spawn = fake.spawns.at(-1) ?? []
+  expect(spawn[spawn.indexOf('--source') + 1]).toBe('cap')
+  expect((await ui.find({ key: 'camera' }))?.props.label).toBe('↻ iPhone')
   await ui.unmount()
 })
 
-test('the gallery reads the text of the newest photo', async ($, on) => {
+test('with nothing attached the gallery reads the text of the last shot', async ($, on) => {
   const clock = mock.clock(on)
-  const fake = fakeMac(on, () => true)
+  const fake = fakeMac(on, () => true, { noInbox: true })
   const ui = await openPane($)
   await ui.press({ key: 'tab:gallery' })
   await clock.advance(1000)
@@ -375,20 +436,24 @@ test('a failed question says why in Russian', async ($, on) => {
   await clock.advance(1000)
 
   await ui.press({ key: 'ask' })
-  expect(await ui.find({ type: 'Text', text: /Apple Intelligence выключен или недоступен/ })).toBeDefined()
+  const said = 'Apple Intelligence выключен. Включи его в Системных настройках › Apple Intelligence и Siri и попробуй снова.'
+  expect((await ui.find({ type: 'Text', text: /Apple Intelligence/ }))?.text).toBe(said)
+  expect(JSON.stringify(await ui.drawn())).not.toContain(MODEL_OFF)
   expect(await ui.find({ key: 'read-text' })).toBeUndefined()
   await ui.unmount()
 })
 
 test('two originals that share a name get their own gallery copies', async ($, on) => {
   const clock = mock.clock(on)
-  fakeMac(on, () => true, { recent: ['/D/IMG 1.heic', '/D/IMG 1.jpg'] })
+  const originals = ['/D/IMG 1.heic', '/D/IMG 1.jpg', '/D/IMG-1.jpg']
+  fakeMac(on, () => true, { recent: originals })
   const ui = await openPane($)
   await ui.press({ key: 'tab:gallery' })
   await clock.advance(1000)
 
-  expect(await ui.find({ key: 'recent:recent-IMG-1-heic.jpg' })).toBeDefined()
-  expect(await ui.find({ key: 'recent:recent-IMG-1.jpg' })).toBeDefined()
+  const keys = originals.map(original => `recent:${recentName(original)}`)
+  expect(new Set(keys).size).toBe(3)
+  for (const key of keys) expect(await ui.find({ key })).toBeDefined()
   await ui.unmount()
 })
 
@@ -408,5 +473,125 @@ test('stale frame folders of other sessions are swept once', async ($, on) => {
   expect(sweep[1]).toBe(LIVE)
   expect(sweep).toContain('-mmin')
   expect(sweep.join(' ')).toContain(`! -name ${own}`)
+  await ui.unmount()
+})
+
+test('a live error the pane has no words for is told by its exit code', async ($, on) => {
+  const clock = mock.clock(on)
+  fakeMac(on, () => true, { tail: [{ error: 'x', exit: '75' }] })
+  const ui = await openPane($)
+  await clock.advance(1000)
+
+  expect((await ui.find({ key: 'live' }))?.text).toContain('iPhone не подключился вовремя: x')
+  await ui.unmount()
+})
+
+test('a live child that ends with a reason on stderr shows it in Russian', async ($, on) => {
+  const clock = mock.clock(on)
+  fakeMac(on, () => true, { exit: { code: 69, stderr: "snapcam-cli: SnapCam isn't running." } })
+  const ui = await openPane($)
+  await clock.advance(1000)
+
+  expect((await ui.find({ key: 'live' }))?.text).toContain('SnapCam для Mac, iPhone или камера недоступны: SnapCam не запущен.')
+  await ui.unmount()
+})
+
+test('the gallery reads one photo at a time', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { ocrDelay: 20 })
+  const ui = await openPane($)
+  await ui.press({ key: 'tab:gallery' })
+  await clock.advance(1000)
+
+  await Promise.all([ui.press({ key: 'read' }), ui.press({ key: 'read' })])
+  expect(fake.calls.filter(args => args[0] === 'ocr')).toHaveLength(1)
+  expect((await ui.find({ key: 'read-text' }))?.text).toBe('Фото: SnapCam 2026-11-22 at 10.00.01.heic\nHello from the receipt')
+  await ui.unmount()
+})
+
+test('an inbox photo attached in the gallery is the one read', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true)
+  const ui = await openPane($)
+  await clock.advance(3000)
+  await ui.press({ key: 'tab:gallery' })
+  expect((await ui.find({ key: `inbox:${A}` }))?.props.label).toMatch(/^✓/)
+
+  await ui.press({ key: 'read' })
+  expect(fake.calls.find(args => args[0] === 'ocr')).toEqual(['ocr', '/Pictures/SnapCam/Default/a.heic', '--json'])
+  expect(await ui.find({ key: 'read-text' })).toBeDefined()
+  // Another attachment: the old answer goes.
+  await ui.press({ key: `inbox:${A}` })
+  expect(await ui.find({ key: 'read-text' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('on a phone the gallery has no question field', async ($, on) => {
+  const clock = mock.clock(on)
+  fakeMac(on, () => true, { surfaces: () => ['mobile'] })
+  const ui = await openPane($, 'mobile')
+  await ui.press({ key: 'tab:gallery' })
+  await clock.advance(1000)
+
+  expect(await ui.find({ key: 'ask' })).toBeDefined()
+  expect(await ui.find({ key: 'question' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('on the terminal the band and the preview pane draw no Svg', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { surfaces: () => ['terminal'] })
+  const ui = await openPane($, 'terminal')
+  await clock.advance(1000)
+  await ui.press({ key: 'shoot' })
+  await ui.unmount()
+
+  const band = await $.ui.mount({ plugin: 'snap-cam', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false } } as never)
+  expect(await band.find({ type: 'Svg' })).toBeUndefined()
+  const zoom = (await band.findAll({ type: 'Button' })).find(button => String(button.key).startsWith('zoom:'))
+  expect(zoom).toBeDefined()
+  await band.press({ key: String(zoom?.key) })
+  await band.unmount()
+
+  const preview = await $.ui.mount({
+    plugin: 'snap-cam', surface: 'terminal', component: 'Pane', requestId: 'snap-preview',
+    props: { title: 'SnapCam', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+  } as never)
+  expect(await preview.find({ type: 'Svg' })).toBeUndefined()
+  expect((await preview.find({ type: 'Text' }))?.text).toMatch(/^iphone-.*\.jpg$/)
+  expect(fake.reads.some(path => path.includes('/previews/'))).toBe(false)
+  await preview.unmount()
+})
+
+test('a fresh shot is read before an older attached gallery photo', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { noInbox: true })
+  const ui = await openPane($)
+  await clock.advance(1000)
+  await ui.press({ key: 'shoot' })
+  await ui.press({ key: 'tab:gallery' })
+  await clock.advance(1000)
+  await ui.press({ key: `recent:${RECENT}` })
+
+  await ui.press({ key: 'read' })
+  expect(fake.calls.find(args => args[0] === 'ocr')).toEqual(['ocr', '/o.heic', '--json'])
+  await ui.unmount()
+})
+
+test('without SnapCam for Mac the shot and the read say so in Russian', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { noCli: true })
+  const ui = await openPane($)
+  await clock.advance(1000)
+  await ui.press({ key: 'shoot' })
+  const shot = await ui.find({ type: 'Text', text: /не установлен: собери/ })
+  expect(shot?.text).toBe('SnapCam: SnapCam для Mac не установлен: собери его в snapcam-app скриптом scripts/install-mac.sh')
+
+  await ui.press({ key: 'tab:gallery' })
+  await clock.advance(1000)
+  await ui.press({ key: 'read' })
+  expect((await ui.find({ type: 'Text', text: /не установлен/ }))?.text).toBe('SnapCam для Mac не установлен: собери его в snapcam-app скриптом scripts/install-mac.sh')
+  expect(fake.calls).toHaveLength(0)
+  expect(JSON.stringify(await ui.drawn())).not.toContain('is not installed')
   await ui.unmount()
 })

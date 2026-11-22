@@ -5,8 +5,10 @@ import type { SnapMode } from '../types'
 
 const busy = atom({ plugin: 'snap-cam', key: 'busy' } as const, '')
 const pending = atom({ plugin: 'snap-cam', key: 'pending' } as const, [] as string[])
+// Attached shot previews → their originals, for the pane's read and ask.
+const shotOriginals = atom({ plugin: 'snap-cam', key: 'shotOriginals' } as const, {} as Record<string, string>)
 
-// Camera → snapcam-cli --source (ADR 0004); `external` only in the pane.
+// Camera → snapcam-cli --source (ADR 0004); external: pane and fast capture, not MCP.
 export const SOURCES: Record<SnapMode, { source: string; title: string }> = {
   iphone: { source: 'phone', title: 'SnapCam iPhone app' },
   continuity: { source: 'continuity', title: 'Continuity Camera' },
@@ -16,7 +18,12 @@ export const SOURCES: Record<SnapMode, { source: string; title: string }> = {
 }
 // take_photo and peek cameras: the MCP enums.
 export const CAMERAS: SnapMode[] = ['iphone', 'continuity', 'desk', 'mac']
+// Russian short names for the pane and the band; SOURCES.title stays for the model.
+export const SHORT: Record<SnapMode, string> = {
+  iphone: 'iPhone', continuity: 'Continuity', desk: 'Desk View', mac: 'камера Mac', external: 'внешняя камера',
+}
 export const INSTALL = 'SnapCam for Mac is not installed: build it from snapcam-app with scripts/install-mac.sh'
+export const INSTALL_RU = 'SnapCam для Mac не установлен: собери его в snapcam-app скриптом scripts/install-mac.sh'
 
 export type Flash = 'off' | 'on' | 'auto'
 export type Lens = 'ultraWide' | 'wide' | 'telephoto'
@@ -43,8 +50,9 @@ export const THUMB = 96
 
 export type Paths = { dir: string; snaps: string; thumbs: string; staging: string; recent: string; home: string }
 
-export type Shot = { delay: string; flash?: Flash; lens?: Lens; zoom?: number }
-export type Taken = { path: string; note: string }
+// `source` picks one camera of a mode by id, e.g. one of several external ones.
+export type Shot = { delay: string; flash?: Flash; lens?: Lens; zoom?: number; source?: string }
+export type Taken = { path: string; note: string; original?: string }
 
 export type Cli = { exitCode: number; stdout: string; reason: string }
 
@@ -86,7 +94,18 @@ export const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 const slug = (text: string) => text.replace(/[^\w.-]+/g, '-')
 
-// One chat-safe copy per original: a non-JPEG extension stays in the name.
+// FNV-1a, 6 hex digits: tells apart originals whose names slug alike.
+function hash6(text: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+
+  return h.toString(16).padStart(8, '0').slice(0, 6)
+}
+
+// One stable chat-safe copy per original: name, kind, path hash.
 export function recentName(original: string): string {
   const base = baseName(original)
   const dot = base.lastIndexOf('.')
@@ -94,7 +113,7 @@ export function recentName(original: string): string {
   const ext = dot > 0 ? base.slice(dot + 1) : ''
   const kind = ext && !/^jpe?g$/i.test(ext) ? `-${slug(ext.toLowerCase())}` : ''
 
-  return `recent-${slug(stem)}${kind}.jpg`
+  return `recent-${slug(stem)}${kind}-${hash6(original)}.jpg`
 }
 
 export function stamp(ms: number): string {
@@ -153,26 +172,79 @@ const REASONS: Record<string, string> = {
   'Timed out. Is SnapCam open on the iPhone?': 'Камера не ответила вовремя. SnapCam открыт на iPhone?',
   'Timed out. Is the camera still connected?': 'Камера не ответила вовремя. Она ещё подключена?',
   "SnapCam.app isn't installed.": 'SnapCam.app не установлен.',
-  'unexpected answer': 'неожиданный ответ',
+  'unexpected answer': 'SnapCam для Mac ответил неожиданно — обнови приложение.',
+  'SnapCam answered something else; update the app.': 'SnapCam для Mac ответил неожиданно — обнови приложение.',
   "SnapCam didn't list its photos in time.": 'SnapCam не успел показать фото.',
+  "The camera didn't deliver the photo in time. It may still appear in SnapCam's history.":
+    'Камера не отдала фото вовремя. Оно ещё может появиться в истории SnapCam.',
 }
 
-// Reasons that carry a path.
+// PhotoQuestion.Unavailable: why the Mac's model can't answer.
+const MODEL_OFF: Record<string, string> = {
+  "This Mac doesn't support Apple Intelligence, so questions about photos can't be answered. Reading text still works.":
+    'Этот Mac не поддерживает Apple Intelligence, поэтому на вопросы о фото ответить нельзя. Чтение текста работает.',
+  'Apple Intelligence is off. Turn it on in System Settings > Apple Intelligence & Siri, then try again.':
+    'Apple Intelligence выключен. Включи его в Системных настройках › Apple Intelligence и Siri и попробуй снова.',
+  "The Apple Intelligence model isn't ready yet (still downloading). Try again in a few minutes.":
+    'Модель Apple Intelligence ещё не готова (загружается). Попробуй через несколько минут.',
+  "The on-device Apple model isn't available right now. Try again later.":
+    'Модель Apple на этом Mac сейчас недоступна. Попробуй позже.',
+}
+
+// Reasons that explain themselves: shown alone, without the exit-code prefix.
+const SELF: Record<string, string> = {
+  ...MODEL_OFF,
+  "No text was found in the photo, so there's nothing to ask about.": 'На фото не найден текст — спрашивать не о чем.',
+  'The on-device model declined to answer this. Try rephrasing the question.':
+    'Модель на Mac отказалась отвечать. Попробуй спросить иначе.',
+  "The on-device model doesn't support this language yet. Ask in English.":
+    'Модель на Mac пока не знает этот язык. Спроси по-английски.',
+  'The text is too long for the on-device model even after trimming.':
+    'Текст слишком длинный для модели на Mac даже после сокращения.',
+}
+const SELF_PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
+  [/^No photos in (.+)$/, m => `В папке ${m[1]} ещё нет фото.`],
+  [/^The on-device model failed: (.+)$/s, m => `Модель на Mac не справилась: ${m[1]}`],
+]
+
+// Reasons that carry a path or a nested reason.
 const LANDING = /(?:The last photo is )?still on its way from the iPhone \((.+?)\)\. Try again shortly\./g
+const NESTED: [RegExp, (m: RegExpExecArray) => string][] = [
+  [/^SnapCam didn't start: (.+)$/s, m => `SnapCam не запустился: ${paneReason(m[1] ?? '')}`],
+  [/^Couldn't open SnapCam\.app: (.+)$/s, m => `Не удалось открыть SnapCam.app: ${m[1]}`],
+]
+
+// A self-explaining reason in Russian, or null.
+function selfReason(reason: string): string | null {
+  const text = reason.trim()
+  const known = SELF[text]
+  if (known) return known
+  for (const [pattern, say] of SELF_PATTERNS) {
+    const m = pattern.exec(text)
+    if (m) return say(m)
+  }
+
+  return null
+}
 
 export function paneReason(reason: string): string {
-  const known = REASONS[reason.trim()]
+  const text = reason.trim()
+  const known = REASONS[text] ?? selfReason(text)
   if (known) return known
+  for (const [pattern, say] of NESTED) {
+    const m = pattern.exec(text)
+    if (m) return say(m)
+  }
 
   return reason.replace(LANDING, (_, path: string) => `Фото ещё едет с iPhone (${path.split('/').pop()}). Повтори чуть позже.`)
 }
 
 // cliFailure in Russian, for the pane and the band; the model keeps English.
-export function paneFailure(run: Pick<Cli, 'exitCode' | 'reason'>, what?: 'ask'): string {
-  const transport = REASONS[run.reason.trim()] !== undefined
+export function paneFailure(run: Pick<Cli, 'exitCode' | 'reason'>): string {
+  const alone = selfReason(run.reason)
+  if (alone) return alone
   const why =
-    run.exitCode === CLI_UNAVAILABLE
-      ? what === 'ask' && !transport ? 'Apple Intelligence выключен или недоступен' : 'SnapCam для Mac, iPhone или камера недоступны'
+    run.exitCode === CLI_UNAVAILABLE ? 'SnapCam для Mac, iPhone или камера недоступны'
     : run.exitCode === CLI_OFFLINE ? 'iPhone не подключился вовремя'
     : run.exitCode === CLI_USAGE ? 'неверные аргументы — обнови SnapCam для Mac'
     : 'камера или приложение сообщили об ошибке'
@@ -199,6 +271,16 @@ export function photoArgs(input: { path?: unknown; recent?: unknown }): string[]
   const asked = Math.floor(Number(input.recent))
 
   return ['--recent', String(asked >= 1 ? Math.min(asked, RECENT_MAX) : 1)]
+}
+
+// For the pane: the photo's name and its text, without area tags.
+export function paneOcrText(photos: PhotoText[]): string {
+  return photos
+    .map(photo => {
+      const lines = (photo.paragraphs ?? []).map(p => p.text?.trim() ?? '').filter(Boolean)
+      return `Фото: ${baseName(photo.path ?? '?')}\n${lines.length ? lines.join('\n') : '(текст не найден)'}`
+    })
+    .join('\n\n')
 }
 
 export function describeText(photos: PhotoText[]): string {
@@ -229,7 +311,8 @@ export async function shoot($: EngineInterface, mode: SnapMode, shot: Shot): Pro
   const out = `${p.snaps}/${mode}-${stamp(started)}.jpg`
   await $.process.run(['mkdir', '-p', p.snaps])
   await $.fs.write(`${p.dir}/last-mode.txt`, mode)
-  const { source, title } = SOURCES[mode]
+  const { title } = SOURCES[mode]
+  const source = shot.source ?? SOURCES[mode].source
   const phone = mode === 'iphone'
   const delay = shot.delay === 'manual' ? MANUAL_COUNTDOWN_S : Number(shot.delay)
   const timeout = phone ? CLI_TIMEOUT_S : MAC_TIMEOUT_S
@@ -253,26 +336,34 @@ export async function shoot($: EngineInterface, mode: SnapMode, shot: Shot): Pro
     `${timingNote(json, (await $.clock.now()) - started, delay * 1000)}. Original: ${json.original}` +
     (json.originalPending ? ' (still arriving from the iPhone)' : '')
 
-  return { path: json.preview, note }
+  return { path: json.preview, note, original: json.original }
 }
 
 export async function lastMode($: EngineInterface): Promise<SnapMode> {
   const file = `${(await paths($)).dir}/last-mode.txt`
   const saved = (await $.fs.exists(file)) ? (await $.fs.read(file)).trim() : ''
 
-  return CAMERAS.find(mode => mode === saved) ?? 'iphone'
+  return (Object.keys(SOURCES) as SnapMode[]).find(mode => mode === saved) ?? 'iphone'
 }
 
-export async function snapToTray($: EngineInterface, mode: SnapMode, delay = 'manual'): Promise<string> {
+export async function snapToTray($: EngineInterface, mode: SnapMode, delay = 'manual', source?: string): Promise<string> {
   if ((await read($, busy)) !== '') return 'SnapCam уже снимает'
   await update($, busy, () => mode)
   try {
-    const { path } = await shoot($, mode, { delay })
+    const { path, original } = await shoot($, mode, { delay, source })
     await update($, pending, list => [...list, path])
+    const kept = new Set(await read($, pending))
+    await update($, shotOriginals, map => ({
+      ...Object.fromEntries(Object.entries(map).filter(([shot]) => kept.has(shot))),
+      ...(original ? { [path]: original } : {}),
+    }))
 
     return `Фото прикреплено: ${baseName(path)}`
   } catch (error) {
-    const why = error instanceof CliError ? paneFailure(error.run) : error instanceof Error ? error.message : String(error)
+    const why =
+      error instanceof CliError ? paneFailure(error.run)
+      : error instanceof Error ? (error.message === INSTALL ? INSTALL_RU : error.message)
+      : String(error)
     const msg = `SnapCam: ${why}`
     $.ui.toast(msg)
 

@@ -3,8 +3,8 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { CameraInfo, Framing, InboxItem, LiveFrame, PaneTab, RecentItem, SnapMode } from '../types'
 import {
-  CLI_USAGE, READ_TIMEOUT_S, SIDE, SOURCES, baseName, chipSvg, describeText, findCli, makeThumb, paneFailure, paneReason,
-  parseJson, paths, recentName, runCli, snapToTray, times,
+  CLI_USAGE, INSTALL_RU, READ_TIMEOUT_S, SHORT, SIDE, SOURCES, baseName, chipSvg, findCli, makeThumb, paneFailure,
+  paneOcrText, paneReason, parseJson, paths, recentName, runCli, snapToTray, times,
 } from './cli'
 import type { PhotoText } from './cli'
 
@@ -14,10 +14,14 @@ const gallery = atom({ plugin: 'snap-cam', key: 'gallery' } as const, [] as Rece
 const inbox = atom({ plugin: 'snap-cam', key: 'inbox' } as const, [] as InboxItem[])
 const liveFrame = atom({ plugin: 'snap-cam', key: 'liveFrame' } as const, { seq: 0 } as LiveFrame)
 const paneCamera = atom({ plugin: 'snap-cam', key: 'paneCamera' } as const, 'iphone' as SnapMode)
+// The camera id within `paneCamera`, for one of several external cameras; '' otherwise.
+const paneSource = atom({ plugin: 'snap-cam', key: 'paneSource' } as const, '')
 const paneNote = atom({ plugin: 'snap-cam', key: 'paneNote' } as const, '')
 const paneTab = atom({ plugin: 'snap-cam', key: 'paneTab' } as const, 'camera' as PaneTab)
 const paneText = atom({ plugin: 'snap-cam', key: 'paneText' } as const, '')
 const pending = atom({ plugin: 'snap-cam', key: 'pending' } as const, [] as string[])
+// Attached shot previews → originals; written by snapToTray in cli.ts.
+const shotOriginals = atom({ plugin: 'snap-cam', key: 'shotOriginals' } as const, {} as Record<string, string>)
 const phoneTray = atom({ plugin: 'snap-cam', key: 'phoneTray' } as const, [] as InboxItem[])
 
 export const LIVE_PANE = 'snap-live'
@@ -37,10 +41,6 @@ const LIGHT_LEVELS = [0, 0.3, 0.6, 1]
 const FLASH_ORDER = ['off', 'auto', 'on']
 const CHIP = 72
 const LENS_LABEL: Record<string, string> = { ultraWide: 'ultra', wide: 'wide', telephoto: 'tele' }
-const SHORT: Record<SnapMode, string> = {
-  iphone: 'iPhone', continuity: 'Continuity', desk: 'Desk View', mac: 'камера Mac', external: 'внешняя камера',
-}
-const short = (mode: SnapMode) => SHORT[mode]
 const SOURCE_MODES: Record<string, SnapMode> = {
   phone: 'iphone', continuity: 'continuity', deskView: 'desk', builtIn: 'mac', external: 'external',
 }
@@ -57,7 +57,7 @@ type StateJson = {
     exposure?: { min: number; max: number }
   }
   framing?: Framing
-  sources?: { kind: string; name: string }[]
+  sources?: { id?: string; kind: string; name: string }[]
 }
 type RecentJson = { items?: { original: string }[] }
 
@@ -66,6 +66,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), h
 type Run = {
   stream: AsyncGenerator<unknown, unknown>
   mode: SnapMode
+  source: string
   stopped: boolean
   everyFrame: boolean
   blit: boolean
@@ -108,16 +109,28 @@ const STALE_MINUTES = 10
 // The gallery's question for `ask`; empty summarizes.
 let question = ''
 let reading = false
+// The attached photos the shown answer is about; another set hides it.
+let textFor = ''
+// How long a close waits for the child to die before removing its folder.
+const KILL_WAIT_MS = 2000
 
-function stopLive(): void {
+// Stops the child; resolves once it is gone or after KILL_WAIT_MS.
+function stopLive($: EngineInterface): Promise<void> {
   startGen += 1
-  if (!run) return
+  if (!run) return Promise.resolve()
   run.stopped = true
-  void run.stream.return(undefined).catch(() => {})
+  const killed = run.stream.return(undefined).then(() => {}, () => {})
   run = null
+
+  return Promise.race([killed, $.clock.sleep(KILL_WAIT_MS).catch(() => {})])
 }
 
-async function startLive($: EngineInterface, mode: SnapMode, surfaces: readonly string[]): Promise<void> {
+// `--source` for the stream and shots: an external camera's id, else the mode's source.
+function sourceOf(mode: SnapMode, id: string): string {
+  return mode === 'external' && id ? id : SOURCES[mode].source
+}
+
+async function startLive($: EngineInterface, mode: SnapMode, id: string, surfaces: readonly string[]): Promise<void> {
   const gen = startGen
   const p = await paths($)
   const cli = await findCli($, p)
@@ -133,11 +146,12 @@ async function startLive($: EngineInterface, mode: SnapMode, surfaces: readonly 
     void $.process.run([...stale, '-mmin', `+${STALE_MINUTES}`, '-exec', 'rm', '-rf', '{}', '+']).catch(() => {})
   }
   const blit = surfaces.includes('terminal')
-  const source = mode === 'iphone' ? [] : ['--source', SOURCES[mode].source]
+  const wanted = sourceOf(mode, id)
+  const source = mode === 'iphone' ? [] : ['--source', wanted]
   const argv = [cli, 'live', '--preview-dir', `${p.dir}/live/${LIVE_ID}`, '--preview-size', String(LIVE_SIDE)]
   argv.push('--fps', String(FPS), '--json', ...(blit ? ['--png'] : []), ...source)
   const stream = $.process.spawn({ argv })
-  const me: Run = { stream, mode, stopped: false, everyFrame: surfaces.some(s => s !== 'terminal'), blit, bytes: false, denials: 0 }
+  const me: Run = { stream, mode, source: wanted, stopped: false, everyFrame: surfaces.some(s => s !== 'terminal'), blit, bytes: false, denials: 0 }
   run = me
   await update($, liveFrame, () => ({ seq: 0 }))
   void (async () => {
@@ -167,7 +181,8 @@ async function startLive($: EngineInterface, mode: SnapMode, surfaces: readonly 
       }
     } catch (error) {
       // Also an unload: $ may be gone, so nothing may throw from here.
-      if (!me.stopped) await ended($, `snapcam-cli live: ${String(error)}`).catch(() => {})
+      const why = error instanceof Error ? error.message : String(error)
+      if (!me.stopped) await ended($, `Не удалось запустить snapcam-cli live: ${why}`).catch(() => {})
     } finally {
       if (run === me) run = null
     }
@@ -243,18 +258,20 @@ async function tick($: EngineInterface): Promise<void> {
     const shown = !!pane && pane.isShown && pane.isPlaced
     const tab = await read($, paneTab)
     const mode = await read($, paneCamera)
+    const id = await read($, paneSource)
     const surfaces = await $.session.surfaces()
     // A surface came or went: restart with its flags.
     // Only --png needs a new child; the redraw policy changes in place.
     if (run) run.everyFrame = surfaces.some(s => s !== 'terminal')
     const changed = run && run.blit !== surfaces.includes('terminal') && run.denials < MAX_DENIALS
-    if (run && (!shown || tab !== 'camera' || run.mode !== mode || changed)) stopLive()
+    const moved = run && (run.mode !== mode || run.source !== sourceOf(mode, id))
+    if (run && (!shown || tab !== 'camera' || moved || changed)) void stopLive($)
     const now = await $.clock.now()
     if (shown && tab === 'camera' && !infoBusy && (infoAt === null || now - infoAt > INFO_EVERY_MS)) {
       infoAt = now
       void refreshInfo($).catch(() => {})
     }
-    if (shown && tab === 'camera' && !run && now >= retryAt) await startLive($, mode, surfaces)
+    if (shown && tab === 'camera' && !run && now >= retryAt) await startLive($, mode, id, surfaces)
     if (shown && tab === 'gallery' && (galleryAt === null || now - galleryAt > GALLERY_EVERY_MS)) void refreshGallery($).catch(() => {})
   } catch {
     // Next tick tries again.
@@ -272,7 +289,12 @@ function toInfo(json: Partial<StateJson>): CameraInfo {
   const sources: CameraInfo['sources'] = []
   for (const one of json.sources ?? []) {
     const mode = SOURCE_MODES[one.kind]
-    if (mode && !sources.some(s => s.mode === mode)) sources.push({ mode, name: one.name })
+    // Every external camera by id; one entry for each other kind.
+    if (mode === 'external' && one.id) {
+      if (!sources.some(s => s.id === one.id)) sources.push({ mode, name: one.name, id: one.id })
+    } else if (mode && !sources.some(s => s.mode === mode)) {
+      sources.push({ mode, name: one.name })
+    }
   }
   if (!sources.some(s => s.mode === 'iphone')) sources.unshift({ mode: 'iphone', name: 'iPhone' })
 
@@ -368,6 +390,7 @@ async function control($: EngineInterface, args: string[]): Promise<void> {
 }
 
 async function toggleRecent($: EngineInterface, item: RecentItem): Promise<void> {
+  await update($, paneText, () => '')
   const p = await paths($)
   const dest = `${p.snaps}/${item.name}`
   if ((await read($, pending)).includes(dest)) {
@@ -383,24 +406,50 @@ async function toggleRecent($: EngineInterface, item: RecentItem): Promise<void>
   await update($, pending, list => (list.includes(dest) ? list : [...list, dest]))
 }
 
-// The newest attached gallery photo, else the last shot.
+// What the answer is about: the attached gallery and inbox photos.
+async function attachedKey($: EngineInterface): Promise<string> {
+  const shots = await read($, pending)
+  const tray = (await read($, phoneTray)).map(item => item.id)
+
+  return [...shots, ...tray].sort().join('\n')
+}
+
+// The newest attached photo: a shot, gallery or inbox; else the last shot.
 async function readTarget($: EngineInterface): Promise<string[]> {
   const p = await paths($)
-  const attached = new Set(await read($, pending))
-  const photo = (await read($, gallery)).find(item => attached.has(`${p.snaps}/${item.name}`))
+  const list = await read($, pending)
+  const attached = new Set(list)
+  const known = await read($, shotOriginals)
+  const shots = list.filter(path => known[path]).map(path => known[path] as string)
+  const tray = await read($, phoneTray)
+  const originals = new Set([...shots, ...tray.map(item => item.original)])
+  const listed = await read($, gallery)
+  // A shot not yet in the gallery is newer than anything listed there.
+  const unlisted = shots.filter(original => !listed.some(item => item.original === original)).at(-1)
+  if (unlisted) return [unlisted]
+  // The gallery lists the save folder newest first; shot and inbox originals live there too.
+  const shown = listed.find(item => attached.has(`${p.snaps}/${item.name}`) || originals.has(item.original))
+  if (shown) return [shown.original]
+  // Not among the newest few: the inbox lists oldest first.
+  const order = (await read($, inbox)).map(item => item.id)
+  const newest = [...tray].sort((a, b) => order.indexOf(b.id) - order.indexOf(a.id))[0]
 
-  return photo ? [photo.original] : ['--recent', '1']
+  return newest ? [newest.original] : ['--recent', '1']
 }
 
 // Gallery `read` (OCR) or `ask` (the Mac's model), answered under the buttons.
 async function readPhoto($: EngineInterface, what: 'read' | 'ask'): Promise<void> {
   if (reading) return
-  const p = await paths($)
-  const cli = await findCli($, p)
-  if (!cli) return
   reading = true
   try {
-    await update($, paneText, () => 'Читаю…')
+    const p = await paths($)
+    const cli = await findCli($, p)
+    if (!cli) {
+      await setNote($, 'read', INSTALL_RU)
+      return
+    }
+    await update($, paneText, () => (what === 'read' ? 'Читаю…' : 'Думаю…'))
+    textFor = await attachedKey($)
     const target = await readTarget($)
     const asked = question.trim()
     const argv =
@@ -408,16 +457,16 @@ async function readPhoto($: EngineInterface, what: 'read' | 'ask'): Promise<void
     const res = await runCli($, cli, argv, READ_TIMEOUT_S)
     if (res.exitCode !== 0) {
       await update($, paneText, () => '')
-      await setNote($, 'read', paneFailure(res, what === 'ask' ? 'ask' : undefined))
+      await setNote($, 'read', paneFailure(res))
       return
     }
     await setNote($, 'read', '')
     if (what === 'read') {
-      await update($, paneText, () => describeText(parseJson<{ photos: PhotoText[] }>(res.stdout).photos ?? []))
+      await update($, paneText, () => paneOcrText(parseJson<{ photos: PhotoText[] }>(res.stdout).photos ?? []))
     } else {
       const json = parseJson<{ answer: string; photos: string[] }>(res.stdout)
       const names = (json.photos ?? []).map(baseName).join(', ')
-      await update($, paneText, () => `${json.answer ?? ''}${names ? `\n\n(Фото: ${names})` : ''}`)
+      await update($, paneText, () => `${json.answer ?? ''}${names ? `\n\nФото: ${names}` : ''}`)
     }
   } catch (error) {
     await update($, paneText, () => '')
@@ -429,6 +478,7 @@ async function readPhoto($: EngineInterface, what: 'read' | 'ask'): Promise<void
 
 // A tray photo off goes to `dismissed`; back on leaves it.
 async function toggleInbox($: EngineInterface, item: InboxItem): Promise<void> {
+  await update($, paneText, () => '')
   const attached = (await read($, phoneTray)).some(one => one.id === item.id)
   if (attached) {
     await update($, dismissed, list => (list.includes(item.id) ? list : [...list, item.id]))
@@ -461,9 +511,15 @@ async function videoSvg($: EngineInterface, frame: LiveFrame): Promise<string | 
   return lastSvg
 }
 
-function framingLine(frame: LiveFrame, info: CameraInfo | null, mode: SnapMode): string {
+// The state's name for an external camera, else the short Russian one.
+function sourceName(info: CameraInfo | null, id: string): string {
+  return info?.sources.find(s => s.id === id && id)?.name ?? SHORT.external
+}
+
+function framingLine(frame: LiveFrame, info: CameraInfo | null, mode: SnapMode, id: string): string {
   const f = info?.framing
-  const name = frame.phone ?? (mode === 'iphone' ? info?.phone : undefined) ?? short(mode)
+  // Externals by the state's name: the stream reports none of its own for them.
+  const name = mode === 'external' ? sourceName(info, id) : frame.phone ?? (mode === 'iphone' ? info?.phone : undefined) ?? SHORT[mode]
   const parts = [name]
   if (mode === 'iphone' && f) {
     parts.push(`${LENS_LABEL[f.lens ?? ''] ?? f.lens ?? ''} ${times(frame.zoom ?? f.zoom)}`.trim())
@@ -480,13 +536,14 @@ export function startLiveClock($: EngineInterface): void {
   $.clock.every(TICK_MS, () => void tick($))
 }
 
-// The pane closed: stop the stream and drop its frame folder.
+// Pane closed: kill the stream first, or a running poll recreates the folder.
 export async function closeLive($: EngineInterface): Promise<void> {
-  stopLive()
+  const stopped = stopLive($)
   infoAt = null
   lastSvg = null
   const p = await paths($)
-  void $.process.run(['rm', '-rf', `${p.dir}/live/${LIVE_ID}`]).catch(() => {})
+  await stopped
+  await $.process.run(['rm', '-rf', `${p.dir}/live/${LIVE_ID}`]).catch(() => {})
 }
 
 export function registerLive(on: On): void {
@@ -494,12 +551,17 @@ export function registerLive(on: On): void {
     if (e.id === LIVE_PANE) await closeLive($)
 
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: LIVE_PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text, Button, Input } = ui
+    // The terminal has Image, not Svg.
+    const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : null
+    const Image = e.surface === 'terminal' && 'Image' in ui ? ui.Image : null
     const tab = await read($, paneTab)
     const mode = await read($, paneCamera)
+    const id = await read($, paneSource)
     const info = await read($, cameraInfo)
     const note = await read($, paneNote)
     const frame = await read($, liveFrame)
@@ -525,9 +587,10 @@ export function registerLive(on: On): void {
       const chip = async (name: string) => (terminal ? null : await chipSvg($, name, CHIP))
       const inboxChips = await Promise.all(listed.map(item => chip(item.name)))
       const recentChips = await Promise.all(recent.map(item => chip(item.name)))
-      const Svg = e.surface === 'terminal' ? null : $.ui.resolve(e).Svg
-      const { Input } = $.ui.resolve(e)
-      const text = await read($, paneText)
+      // Read always, so the answer redraws; one about other attachments is stale.
+      const answer = await read($, paneText)
+      const text = (await attachedKey($)) === textFor ? answer : ''
+
       const readRow = (
         <Box key="read-row" flexDirection="row" gap={1} alignItems="center">
           <Button key="read" label="📝 Текст" onPress={() => readPhoto($, 'read')} />
@@ -535,9 +598,9 @@ export function registerLive(on: On): void {
           {e.surface !== 'mobile' && (
             <Input
               key="question"
-              placeholder="Вопрос (пусто — кратко)"
+              placeholder="Вопрос (пусто — краткое описание)"
               value={question}
-              submitLabel="спросить"
+              submitLabel="Спросить"
               onInput={value => {
                 question = value
               }}
@@ -583,7 +646,7 @@ export function registerLive(on: On): void {
             </Box>
           )}
           <Button key="gallery:refresh" label="↻ Обновить" plain dimColor onPress={() => void refreshGallery($)} />
-          <Text dimColor>Текст и вопросы — по самому новому фото, прикреплённому из галереи, иначе по последнему снимку.</Text>
+          <Text dimColor>Текст и вопросы — по самому новому прикреплённому фото, иначе по последнему снимку.</Text>
           {readRow}
           {text ? <Box key="read-text"><Text>{text}</Text></Box> : null}
           {noteRow}
@@ -597,8 +660,7 @@ export function registerLive(on: On): void {
     const zoomNow = frame.zoom ?? f?.zoom ?? 1
     const lensNow = frame.lens ?? f?.lens
     let video = null
-    if (e.surface === 'terminal') {
-      const { Image } = $.ui.resolve(e)
+    if (Image) {
       // Cells are about twice as tall as wide; leave rows for the controls below.
       const aspect = (frame.height ?? 9) / (frame.width ?? 16)
       const maxRows = clamp(e.props.scroll.bodyRows - CONTROL_ROWS, 4, 255)
@@ -616,15 +678,14 @@ export function registerLive(on: On): void {
             ? { file: frame.png, format: 'png' as const, generation: frame.seq }
             : null
       video = source ? <Image key="video" source={source} columns={columns} rows={rows} alt="Живое видео SnapCam" /> : null
-    } else {
-      const { Svg } = $.ui.resolve(e)
+    } else if (Svg) {
       const svg = await videoSvg($, frame)
       video = svg ? <Svg source={svg} alt="Живое видео SnapCam" /> : null
     }
     const waiting = frame.error ?? (frame.seq === 0 ? 'Подключаюсь к камере…' : 'Кадр слишком большой')
     // Errors show over a frozen last frame too.
     const problem = frame.error && video ? <Text color="red">⚠ {frame.error}</Text> : null
-    const status = <Text dimColor>{framingLine(frame, info, mode)}</Text>
+    const status = <Text dimColor>{framingLine(frame, info, mode, id)}</Text>
     if (e.props.placement === 'widget') {
       return <Box key="live" flexDirection="column">{video ?? <Text dimColor>{waiting}</Text>}{problem}</Box>
     }
@@ -671,9 +732,11 @@ export function registerLive(on: On): void {
       </Box>
     )
     const sources = info?.sources ?? [{ mode: 'iphone' as SnapMode, name: 'iPhone' }]
-    const nextSource = sources[(sources.findIndex(s => s.mode === mode) + 1) % sources.length]?.mode ?? 'iphone'
+    const current = sources.findIndex(s => s.mode === mode && (s.mode !== 'external' || !id || s.id === id))
+    const next = sources[(current + 1) % sources.length] ?? { mode: 'iphone' as SnapMode, name: 'iPhone' }
+    const nextName = next.mode === 'external' ? next.name : SHORT[next.mode]
     const shoot = async () => {
-      const said = await snapToTray($, mode, '0')
+      const said = await snapToTray($, mode, '0', sourceOf(mode, id))
       await setNote($, 'shoot', said.startsWith('SnapCam') ? said : '')
       galleryAt = null
     }
@@ -691,10 +754,11 @@ export function registerLive(on: On): void {
           {sources.length > 1 && (
             <Button
               key="camera"
-              label={`↻ ${short(nextSource)}`}
+              label={`↻ ${nextName}`}
               dimColor
               onPress={async () => {
-                await update($, paneCamera, () => nextSource)
+                await update($, paneCamera, () => next.mode)
+                await update($, paneSource, () => next.id ?? '')
                 await tick($)
               }}
             />
