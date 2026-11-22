@@ -548,7 +548,8 @@ export function registerLive(on: On): void {
     if (e.id !== LIVE_PANE) return next(e)
     const cleanup = closeLive($)
     const done = await next(e)
-    await cleanup
+    // The close already went through; a failed cleanup must not run next twice.
+    await cleanup.catch(() => {})
 
     return done
   }).catch(($, e, next) => next(e))
