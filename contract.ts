@@ -256,7 +256,7 @@ export const contract = {
         "status" : "available"
       },
       "formatSize" : {
-        "detail" : "inspector (format, size), shared with the iPhone; quality: phone default",
+        "detail" : "inspector (format, size, quality); format and size shared with the iPhone",
         "status" : "available"
       },
       "frameLens" : {
@@ -319,7 +319,7 @@ export const contract = {
         "status" : "notApplicable"
       },
       "formatSize" : {
-        "detail" : "Mac default; quality: phone default",
+        "detail" : "Mac default",
         "status" : "notApplicable"
       },
       "frameLens" : {
@@ -383,7 +383,7 @@ export const contract = {
         "status" : "available"
       },
       "formatSize" : {
-        "detail" : "settings sheet; the Mac's values",
+        "detail" : "settings sheet (format, size); the Mac's values",
         "status" : "available"
       },
       "frameLens" : {

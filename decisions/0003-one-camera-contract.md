@@ -80,7 +80,7 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 | state / caps | ✅ | ✅ | — | ✅ `status` line | ✅ `state`, `caps`, `status` | ✅ `camera_state` | — |
 | inbox | — (phone shots go to history; the queue is for Claude) | ✅ offline queue (unsent shots) | — (sends) | ✅ tray, gallery `inbox:*` | ✅ `inbox`, `inbox --take --id` | — (tray only) | 🔜 |
 | recent photos | ✅ history grid | — (last photo only) | — | ✅ gallery `recent:*` | ✅ `recent` | ✅ `recent_photos count` | 🔜 |
-| format / size / quality | ✅ inspector (format, size), shared with the iPhone; quality: phone default | ✅ settings sheet; the Mac's values | — | — | ✅ `capture --format --size --quality` | — (Mac default; quality: phone default) | — |
+| format / size / quality | ✅ inspector (format, size, quality); format and size shared with the iPhone | ✅ settings sheet (format, size); the Mac's values | — | — | ✅ `capture --format --size --quality` | — (Mac default) | — |
 | pair / forget | ✅ | ✅ | — | — | ✅ `pair` | — | — |
 | read text | ✅ history: Read Text | — (the Mac reads) | — | ✅ gallery `read` | ✅ `ocr`, `ocr --recent` | ✅ `read_text path recent` | ✅ «Read Text in Photo» |
 | ask about a photo | ✅ history: Ask | — (the Mac answers) | — | ✅ gallery `ask`, `question` | ✅ `ask --question`, `ask --recent` | ✅ `ask_photo question path recent` | 🔜 |

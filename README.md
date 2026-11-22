@@ -34,8 +34,8 @@ Continuity camera or Desk View; the Mac app waits up to 25 s for it.
 
 The Mac app's window has the same sources in its toolbar camera picker; its Live pane shows
 the chosen one (the iPhone's stream, or a Mac camera's preview with the crop frame), and
-the inspector holds zoom and flash for Mac cameras. Settings per camera (zoom, flash, format) are used when the mod
-leaves them unset.
+the inspector holds zoom and flash for Mac cameras. Settings per camera (zoom, flash, format,
+size, quality) are used when the mod leaves them unset.
 
 ## Usage
 
