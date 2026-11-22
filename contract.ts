@@ -244,15 +244,15 @@ export const contract = {
         "status" : "available"
       },
       "exposure" : {
-        "detail" : "inspector, live",
+        "detail" : "inspector, live; exposure ruler over the live view",
         "status" : "available"
       },
       "flash" : {
-        "detail" : "inspector, live; on = light",
+        "detail" : "inspector, live, flash dial over the live view; on = light",
         "status" : "available"
       },
       "focus" : {
-        "detail" : "click in the live view; ⌥-click = AE/AF lock; View ▸ Focus on Center, Lock, Reset",
+        "detail" : "click or tap in the live view; ⌥-click or touch and hold = AE/AF lock; View ▸ Focus on Center, Lock, Reset",
         "status" : "available"
       },
       "formatSize" : {
@@ -260,11 +260,11 @@ export const contract = {
         "status" : "available"
       },
       "frameLens" : {
-        "detail" : "inspector, live",
+        "detail" : "inspector, live; zoom ruler stops over the live view",
         "status" : "available"
       },
       "frameZoom" : {
-        "detail" : "inspector, live",
+        "detail" : "inspector, live; pinch and zoom ruler over the live view",
         "status" : "available"
       },
       "inbox" : {
@@ -272,7 +272,7 @@ export const contract = {
         "status" : "notApplicable"
       },
       "light" : {
-        "detail" : "inspector brightness, live",
+        "detail" : "inspector brightness, live, flash dial over the live view",
         "status" : "available"
       },
       "liveVideo" : {
@@ -283,7 +283,7 @@ export const contract = {
         "status" : "available"
       },
       "peek" : {
-        "detail" : "inspector",
+        "detail" : "inspector, only without live video; ⇧⌘F opens the live view",
         "status" : "available"
       },
       "readText" : {
@@ -295,7 +295,7 @@ export const contract = {
         "status" : "available"
       },
       "shoot" : {
-        "detail" : "iPhone or a Mac camera, source picker",
+        "detail" : "iPhone or a Mac camera, source picker; shutter over the live view",
         "status" : "available"
       },
       "state" : {

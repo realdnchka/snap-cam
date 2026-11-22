@@ -68,15 +68,15 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 
 | Command | Mac app | iPhone screen | Camera Control | Claude pane | CLI | MCP | App Intents |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| shoot | ✅ iPhone or a Mac camera, source picker | ✅ shutter; to the Mac inbox | ✅ full press | ✅ `shoot`, `camera` picks the source | ✅ `capture`, `capture --source` | ✅ `take_photo camera` | 🔜 «Снять фото» |
-| frame: lens | ✅ inspector, live | ✅ zoom ruler stops | ✅ system zoom slider switches lenses | ✅ `lens:*` buttons, live | ✅ `frame --lens`, `capture --lens` | ✅ `frame lens`, `take_photo lens` | 🔜 |
-| frame: zoom | ✅ inspector, live | ✅ pinch, zoom ruler | ✅ system slider | ✅ `zoom-` `zoom+`, live | ✅ `frame --zoom`, `capture --zoom` | ✅ `frame zoom`, `take_photo zoom` | 🔜 |
-| focus / AE-AF lock | ✅ click in the live view; ⌥-click = AE/AF lock; View ▸ Focus on Center, Lock, Reset | ✅ tap; hold = AE/AF lock | — | — | — | — | — |
-| flash | ✅ inspector, live; on = light | ✅ flash dial; on = light | ✅ picker | ✅ `flash` cycles; on = light | ✅ `flash`, `capture --flash` | ✅ `take_photo flash`; on = light | 🔜 |
-| light | ✅ inspector brightness, live | ✅ brightness slider while on | ✅ brightness slider | ✅ `light` steps | ✅ `light` | ✅ `light level` | 🔜 |
-| exposure | ✅ inspector, live | ✅ exposure ruler | ✅ system slider | ✅ `ev-` `ev0` `ev+` | ✅ `exposure` | ✅ `frame exposure` | — |
+| shoot | ✅ iPhone or a Mac camera, source picker; shutter over the live view | ✅ shutter; to the Mac inbox | ✅ full press | ✅ `shoot`, `camera` picks the source | ✅ `capture`, `capture --source` | ✅ `take_photo camera` | 🔜 «Снять фото» |
+| frame: lens | ✅ inspector, live; zoom ruler stops over the live view | ✅ zoom ruler stops | ✅ system zoom slider switches lenses | ✅ `lens:*` buttons, live | ✅ `frame --lens`, `capture --lens` | ✅ `frame lens`, `take_photo lens` | 🔜 |
+| frame: zoom | ✅ inspector, live; pinch and zoom ruler over the live view | ✅ pinch, zoom ruler | ✅ system slider | ✅ `zoom-` `zoom+`, live | ✅ `frame --zoom`, `capture --zoom` | ✅ `frame zoom`, `take_photo zoom` | 🔜 |
+| focus / AE-AF lock | ✅ click or tap in the live view; ⌥-click or touch and hold = AE/AF lock; View ▸ Focus on Center, Lock, Reset | ✅ tap; hold = AE/AF lock | — | — | — | — | — |
+| flash | ✅ inspector, live, flash dial over the live view; on = light | ✅ flash dial; on = light | ✅ picker | ✅ `flash` cycles; on = light | ✅ `flash`, `capture --flash` | ✅ `take_photo flash`; on = light | 🔜 |
+| light | ✅ inspector brightness, live, flash dial over the live view | ✅ brightness slider while on | ✅ brightness slider | ✅ `light` steps | ✅ `light` | ✅ `light level` | 🔜 |
+| exposure | ✅ inspector, live; exposure ruler over the live view | ✅ exposure ruler | ✅ system slider | ✅ `ev-` `ev0` `ev+` | ✅ `exposure` | ✅ `frame exposure` | — |
 | live video | ✅ iPhone live view (turbo, enhance), Mac camera preview | ✅ viewfinder | — | ✅ `live`, 5 fps | ✅ `live --fps --png` | — | — |
-| peek | ✅ inspector | — | — | — (live video instead) | ✅ `peek --preview`, `peek --source` | ✅ `peek camera` | — |
+| peek | ✅ inspector, only without live video; ⇧⌘F opens the live view | — | — | — (live video instead) | ✅ `peek --preview`, `peek --source` | ✅ `peek camera` | — |
 | state / caps | ✅ | ✅ | — | ✅ `status` line | ✅ `state`, `caps`, `status` | ✅ `camera_state` | — |
 | inbox | — (phone shots go to history; the queue is for Claude) | ✅ offline queue (unsent shots) | — (sends) | ✅ tray, gallery `inbox:*` | ✅ `inbox`, `inbox --take --id` | — (tray only) | 🔜 |
 | recent photos | ✅ history grid | — (last photo only) | — | ✅ gallery `recent:*` | ✅ `recent` | ✅ `recent_photos count` | 🔜 |
