@@ -6,14 +6,16 @@ import type { SnapMode } from '../types'
 const busy = atom({ plugin: 'snap-cam', key: 'busy' } as const, '')
 const pending = atom({ plugin: 'snap-cam', key: 'pending' } as const, [] as string[])
 
-// take_photo camera → snapcam-cli --source (ADR 0004).
+// Camera → snapcam-cli --source (ADR 0004); `external` only in the pane.
 export const SOURCES: Record<SnapMode, { source: string; title: string }> = {
   iphone: { source: 'phone', title: 'SnapCam iPhone app' },
   continuity: { source: 'continuity', title: 'Continuity Camera' },
   desk: { source: 'deskView', title: 'Desk View' },
   mac: { source: 'builtIn', title: "Mac's built-in camera" },
+  external: { source: 'external', title: 'external camera' },
 }
-export const CAMERAS = Object.keys(SOURCES) as SnapMode[]
+// take_photo and peek cameras: the MCP enums.
+export const CAMERAS: SnapMode[] = ['iphone', 'continuity', 'desk', 'mac']
 export const INSTALL = 'SnapCam for Mac is not installed: build it from snapcam-app with scripts/install-mac.sh'
 
 export type Flash = 'off' | 'on' | 'auto'
@@ -82,6 +84,19 @@ export async function paths($: EngineInterface): Promise<Paths> {
 
 export const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
+const slug = (text: string) => text.replace(/[^\w.-]+/g, '-')
+
+// One chat-safe copy per original: a non-JPEG extension stays in the name.
+export function recentName(original: string): string {
+  const base = baseName(original)
+  const dot = base.lastIndexOf('.')
+  const stem = dot > 0 ? base.slice(0, dot) : base
+  const ext = dot > 0 ? base.slice(dot + 1) : ''
+  const kind = ext && !/^jpe?g$/i.test(ext) ? `-${slug(ext.toLowerCase())}` : ''
+
+  return `recent-${slug(stem)}${kind}.jpg`
+}
+
 export function stamp(ms: number): string {
   const d = new Date(ms)
   const two = (n: number) => String(n).padStart(2, '0')
@@ -131,6 +146,71 @@ export function cliFailure(run: Cli): string {
   return `${why}: ${run.reason}`
 }
 
+// Known CLI reasons, for the pane; the Mac app's own messages come localized.
+const REASONS: Record<string, string> = {
+  "SnapCam isn't running.": 'SnapCam не запущен.',
+  'Timed out. Is the camera still on?': 'Камера не ответила вовремя. Она ещё включена?',
+  'Timed out. Is SnapCam open on the iPhone?': 'Камера не ответила вовремя. SnapCam открыт на iPhone?',
+  'Timed out. Is the camera still connected?': 'Камера не ответила вовремя. Она ещё подключена?',
+  "SnapCam.app isn't installed.": 'SnapCam.app не установлен.',
+  'unexpected answer': 'неожиданный ответ',
+  "SnapCam didn't list its photos in time.": 'SnapCam не успел показать фото.',
+}
+
+// Reasons that carry a path.
+const LANDING = /(?:The last photo is )?still on its way from the iPhone \((.+?)\)\. Try again shortly\./g
+
+export function paneReason(reason: string): string {
+  const known = REASONS[reason.trim()]
+  if (known) return known
+
+  return reason.replace(LANDING, (_, path: string) => `Фото ещё едет с iPhone (${path.split('/').pop()}). Повтори чуть позже.`)
+}
+
+// cliFailure in Russian, for the pane and the band; the model keeps English.
+export function paneFailure(run: Pick<Cli, 'exitCode' | 'reason'>, what?: 'ask'): string {
+  const transport = REASONS[run.reason.trim()] !== undefined
+  const why =
+    run.exitCode === CLI_UNAVAILABLE
+      ? what === 'ask' && !transport ? 'Apple Intelligence выключен или недоступен' : 'SnapCam для Mac, iPhone или камера недоступны'
+    : run.exitCode === CLI_OFFLINE ? 'iPhone не подключился вовремя'
+    : run.exitCode === CLI_USAGE ? 'неверные аргументы — обнови SnapCam для Mac'
+    : 'камера или приложение сообщили об ошибке'
+
+  return `${why}: ${paneReason(run.reason)}`
+}
+
+// A failed CLI run; the UI formats `run` in Russian.
+export class CliError extends Error {
+  constructor(readonly run: Cli) {
+    super(cliFailure(run))
+  }
+}
+
+export const RECENT_MAX = 5
+
+export type Paragraph = { text?: string; area?: string }
+export type PhotoText = { path?: string; paragraphs?: Paragraph[] }
+
+// `path` wins; else the newest `recent` (default 1) of the save folder.
+export function photoArgs(input: { path?: unknown; recent?: unknown }): string[] {
+  const path = typeof input.path === 'string' ? input.path.trim() : ''
+  if (path) return [path]
+  const asked = Math.floor(Number(input.recent))
+
+  return ['--recent', String(asked >= 1 ? Math.min(asked, RECENT_MAX) : 1)]
+}
+
+export function describeText(photos: PhotoText[]): string {
+  return photos
+    .map(photo => {
+      const paragraphs = (photo.paragraphs ?? []).filter(p => p.text?.trim())
+      const body = paragraphs.length ? paragraphs.map(p => `[${p.area ?? '?'}] ${p.text}`).join('\n') : '(no text found)'
+      return `Photo: ${photo.path ?? '?'}\n${body}`
+    })
+    .join('\n\n')
+}
+
 export async function needCli($: EngineInterface, p: Paths): Promise<string> {
   const cli = await findCli($, p)
   if (!cli) throw new Error(INSTALL)
@@ -163,7 +243,7 @@ export async function shoot($: EngineInterface, mode: SnapMode, shot: Shot): Pro
   const run = await $.process.run(argv, { timeoutMs: (timeout + delay + 30) * 1000 })
   const json = parseJson(run.stdout)
   const reason = json.error ?? (run.stderr.trim().replace(/^snapcam-cli: /, '') || `snapcam-cli exit ${run.exitCode}`)
-  if (run.exitCode !== 0 || !json.preview) throw new Error(cliFailure({ exitCode: run.exitCode, stdout: run.stdout, reason }))
+  if (run.exitCode !== 0 || !json.preview) throw new CliError({ exitCode: run.exitCode, stdout: run.stdout, reason })
   await makeThumb($, p, json.preview)
   const lens = phone ? `lens ${json.lens ?? 'auto'}` : 'crop zoom'
   const lensNote = shot.lens && !phone ? '; lens ignored' : ''
@@ -192,7 +272,8 @@ export async function snapToTray($: EngineInterface, mode: SnapMode, delay = 'ma
 
     return `Фото прикреплено: ${baseName(path)}`
   } catch (error) {
-    const msg = `SnapCam: ${error instanceof Error ? error.message : String(error)}`
+    const why = error instanceof CliError ? paneFailure(error.run) : error instanceof Error ? error.message : String(error)
+    const msg = `SnapCam: ${why}`
     $.ui.toast(msg)
 
     return msg

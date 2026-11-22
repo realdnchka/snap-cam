@@ -3,11 +3,11 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { InboxItem, SnapMode } from '../types'
 import {
-  CAMERAS, CLI_UNAVAILABLE, FLASHES, INSTALL, LENSES, MAC_TIMEOUT_S, READ_TIMEOUT_S, SIDE, SOURCES, THUMB,
-  baseName, chipSvg, cliFailure, findCli, lastMode, makeThumb, needCli, parseJson, paths, runCli, shoot,
-  snapToTray, stamp, times,
+  CAMERAS, CLI_UNAVAILABLE, FLASHES, INSTALL, LENSES, MAC_TIMEOUT_S, READ_TIMEOUT_S, RECENT_MAX, SIDE, SOURCES, THUMB,
+  baseName, chipSvg, cliFailure, describeText, findCli, lastMode, makeThumb, needCli, parseJson, paths, photoArgs,
+  recentName, runCli, shoot, snapToTray, stamp, times,
 } from './cli'
-import type { Cli, Lens, Paths } from './cli'
+import type { Cli, Lens, Paths, PhotoText } from './cli'
 import { LIVE_PANE, openLive, registerLive, startLiveClock } from './live'
 
 const busy = atom({ plugin: 'snap-cam', key: 'busy' } as const, '')
@@ -31,7 +31,6 @@ const TOOL_PREFIX = 'mcp__snap-cam__'
 const POLL_MS = 3000
 // Backoff cap while the Mac app is down: 10 ticks = 30 s.
 const POLL_MAX_TICKS = 10
-const RECENT_MAX = 5
 
 // Old snaps lived in ~/Pictures/ClaudeSnaps; keep matching them.
 const SNAP_PATH = /\/\S*\/Pictures\/(?:SnapCam\/)?ClaudeSnaps\/[\w.-]+\.jpg/g
@@ -175,11 +174,11 @@ const imageBlock = async ($: EngineInterface, path: string): Promise<Block> => (
   source: { type: 'base64', media_type: 'image/jpeg', data: (await $.fs.read(path, { as: 'bytes' })).base64 },
 })
 
-// Chat-safe name from the CLI's unique staged one; `taken` dedupes clashes.
-function recentName(staged: string, taken: Set<string>): string {
-  const base = `recent-${baseName(staged).replace(/\.[^.]*$/, '').replace(/[^\w.-]+/g, '-')}`
-  let name = `${base}.jpg`
-  for (let n = 2; taken.has(name); n += 1) name = `${base}-${n}.jpg`
+// The pane's name for that original; `taken` adds `-2` only if two still clash.
+function uniqueRecentName(original: string, taken: Set<string>): string {
+  const first = recentName(original)
+  let name = first
+  for (let n = 2; taken.has(name); n += 1) name = first.replace(/\.jpg$/, `-${n}.jpg`)
   taken.add(name)
 
   return name
@@ -212,7 +211,7 @@ async function recentPhotos($: EngineInterface, count: number): Promise<Block[]>
     for (const [i, item] of items.entries()) {
       let path: string | undefined
       if (item.preview) {
-        const dest = `${p.snaps}/${recentName(item.preview, names)}`
+        const dest = `${p.snaps}/${uniqueRecentName(item.original, names)}`
         await $.process.run(['mv', '-f', item.preview, dest])
         if (await $.fs.exists(dest)) path = dest
       }
@@ -284,28 +283,6 @@ async function cameraState($: EngineInterface): Promise<Block[]> {
   if (run.exitCode !== 0) throw new Error(cliFailure(run))
 
   return [{ type: 'text', text: run.stdout.trim() }]
-}
-
-type Paragraph = { text?: string; area?: string }
-type PhotoText = { path?: string; paragraphs?: Paragraph[] }
-
-// `path` wins; else the newest `recent` (default 1) of the save folder.
-function photoArgs(input: { path?: unknown; recent?: unknown }): string[] {
-  const path = typeof input.path === 'string' ? input.path.trim() : ''
-  if (path) return [path]
-  const asked = Math.floor(Number(input.recent))
-
-  return ['--recent', String(asked >= 1 ? Math.min(asked, RECENT_MAX) : 1)]
-}
-
-function describeText(photos: PhotoText[]): string {
-  return photos
-    .map(photo => {
-      const paragraphs = (photo.paragraphs ?? []).filter(p => p.text?.trim())
-      const body = paragraphs.length ? paragraphs.map(p => `[${p.area ?? '?'}] ${p.text}`).join('\n') : '(no text found)'
-      return `Photo: ${photo.path ?? '?'}\n${body}`
-    })
-    .join('\n\n')
 }
 
 async function readText($: EngineInterface, input: { path?: unknown; recent?: unknown }): Promise<Block[]> {
@@ -723,10 +700,13 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Svg } = $.ui.resolve(e)
+    const { Box, Text } = $.ui.resolve(e)
+    // The terminal's table has no Svg.
+    const Svg = e.surface === 'terminal' ? null : $.ui.resolve(e).Svg
     const name = await read($, viewing)
     const svg = name ? await previewSvg($, name) : null
     if (!svg) return <Text dimColor>Фото не найдено</Text>
+    if (!Svg) return <Text dimColor>{name}</Text>
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -738,12 +718,13 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || e.surface === 'mobile') return next(e)
-    const { Box, Button, Text, Svg } = $.ui.resolve(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const Svg = e.surface === 'terminal' ? null : $.ui.resolve(e).Svg
     const now = await read($, busy)
     const shots = (await read($, pending)).map(path => ({ key: path, name: baseName(path), id: '', original: '' }))
     const fromPhone = (await read($, phoneTray)).map(item => ({ key: item.id, ...item }))
     const tray = [...shots, ...fromPhone]
-    const canDraw = e.surface !== 'terminal'
+    const canDraw = !!Svg
     const chips = canDraw ? await Promise.all(tray.map(item => chipSvg($, item.name))) : []
     const drop = (item: (typeof tray)[number]) =>
       item.id ? forget($, [item.id]) : update($, pending, list => list.filter(one => one !== item.key))
@@ -756,7 +737,7 @@ export const register: Register = on => {
               const svg = chips[i]
               return (
                 <Box key={item.key} flexDirection="row" alignItems="center">
-                  {svg ? (
+                  {svg && Svg ? (
                     <Svg source={svg} alt={item.name} width={THUMB / 2} height={THUMB / 2} />
                   ) : (
                     <Text>{item.id ? '📱' : '📷'} {item.name}</Text>

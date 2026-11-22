@@ -7,7 +7,7 @@ export const HOME = '/Users/me'
 export const LIVE = `${HOME}/Library/Application Support/snap-cam/live`
 export const A = 'aaaaaaaa-0000-4000-8000-000000000001'
 export const ORIGINAL = '/Pictures/SnapCam/Default/SnapCam 2026-11-22 at 10.00.01.heic'
-export const RECENT = 'recent-SnapCam-2026-11-22-at-10.00.01.jpg'
+export const RECENT = 'recent-SnapCam-2026-11-22-at-10.00.01-heic.jpg'
 
 const STATE = {
   appVersion: '1',
@@ -46,13 +46,24 @@ export type FakeOptions = {
   bytesOnly?: boolean
   // Lens and zoom the stream reports, as if moved on the phone.
   live?: { lens: string; zoom: number }
+  // More cameras `state` lists, e.g. an external one.
+  sources?: object[]
+  // What a failing `state` says on stderr.
+  stateError?: string
+  // Originals `recent` lists; one by default.
+  recent?: string[]
+  // `ask` fails as without Apple Intelligence.
+  askFails?: boolean
 }
 
 const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
 
 // A Mac app for the pane: state, recent, inbox, framing commands, and `live` frames.
 export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions = {}): Fake {
-  const { oldCli = false, tail = [], live = { lens: 'wide', zoom: 1 }, bytesOnly = false } = options
+  const { oldCli = false, tail = [], live = { lens: 'wide', zoom: 1 }, bytesOnly = false, askFails = false } = options
+  const state = { ...STATE, sources: [...STATE.sources, ...(options.sources ?? [])] }
+  const stateError = options.stateError ?? "snapcam-cli: SnapCam isn't running."
+  const recent = options.recent ?? [ORIGINAL]
   let stateFails = options.stateFails ?? 0
   const surfaces = options.surfaces ?? (() => ['desktop'])
   const fake: Fake = { calls: [], runs: [], spawns: [], stopped: 0, blits: [], opened: false }
@@ -70,10 +81,16 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
       case 'state':
         if (stateFails > 0) {
           stateFails -= 1
-          return { value: { exitCode: 69, stdout: '', stderr: 'snapcam-cli: SnapCam isn\'t running.', isStdoutTruncated: false, isStderrTruncated: false } }
+          return { value: { exitCode: 69, stdout: '', stderr: stateError, isStdoutTruncated: false, isStderrTruncated: false } }
         }
-        return ok(JSON.stringify(STATE))
-      case 'recent': return ok(JSON.stringify({ folder: '/Pictures/SnapCam/Default', items: [{ original: ORIGINAL }] }))
+        return ok(JSON.stringify(state))
+      case 'recent': return ok(JSON.stringify({ folder: '/Pictures/SnapCam/Default', items: recent.map(original => ({ original })) }))
+      case 'ocr': return ok(JSON.stringify({ photos: [{ path: ORIGINAL, paragraphs: [{ text: 'Hello from the receipt', area: 'top left' }] }] }))
+      case 'ask':
+        if (askFails) {
+          return { value: { exitCode: 69, stdout: '', stderr: 'snapcam-cli: Apple Intelligence is off.', isStdoutTruncated: false, isStderrTruncated: false } }
+        }
+        return ok(JSON.stringify({ answer: 'A grocery receipt.', question: 'q', photos: [ORIGINAL], text: '' }))
       case 'inbox': return ok(JSON.stringify({ items: [{ id: A, original: '/Pictures/SnapCam/Default/a.heic' }], remaining: 1 }))
       case 'frame': return framing(argv.includes('--lens') ? { lens: argv[argv.indexOf('--lens') + 1] } : { zoom: Number(argv[argv.indexOf('--zoom') + 1]) })
       case 'flash': return framing({ flash: argv[2] })
@@ -110,6 +127,7 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
     fake.opened = true
     return { value: { isPlaced: true } }
   })
+  // Beneath the mod: its own ui.close hook runs first.
   on('ui.close', () => {
     fake.opened = false
     return undefined as never

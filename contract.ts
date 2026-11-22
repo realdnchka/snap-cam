@@ -112,7 +112,8 @@ export const contract = {
     },
     "claudePane" : {
       "ask" : {
-        "status" : "planned"
+        "detail" : "gallery `ask`, `question`",
+        "status" : "available"
       },
       "exposure" : {
         "detail" : "`ev-` `ev0` `ev+`",
@@ -156,7 +157,8 @@ export const contract = {
         "status" : "notApplicable"
       },
       "readText" : {
-        "status" : "planned"
+        "detail" : "gallery `read`",
+        "status" : "available"
       },
       "recent" : {
         "detail" : "gallery `recent:*`",

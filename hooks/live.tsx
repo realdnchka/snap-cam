@@ -3,8 +3,10 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { CameraInfo, Framing, InboxItem, LiveFrame, PaneTab, RecentItem, SnapMode } from '../types'
 import {
-  CLI_USAGE, SIDE, SOURCES, baseName, chipSvg, cliFailure, findCli, makeThumb, parseJson, paths, runCli, snapToTray, times,
+  CLI_USAGE, READ_TIMEOUT_S, SIDE, SOURCES, baseName, chipSvg, describeText, findCli, makeThumb, paneFailure, paneReason,
+  parseJson, paths, recentName, runCli, snapToTray, times,
 } from './cli'
+import type { PhotoText } from './cli'
 
 const cameraInfo = atom({ plugin: 'snap-cam', key: 'cameraInfo' } as const, null as CameraInfo | null)
 const dismissed = atom({ plugin: 'snap-cam', key: 'dismissed' } as const, [] as string[])
@@ -14,6 +16,7 @@ const liveFrame = atom({ plugin: 'snap-cam', key: 'liveFrame' } as const, { seq:
 const paneCamera = atom({ plugin: 'snap-cam', key: 'paneCamera' } as const, 'iphone' as SnapMode)
 const paneNote = atom({ plugin: 'snap-cam', key: 'paneNote' } as const, '')
 const paneTab = atom({ plugin: 'snap-cam', key: 'paneTab' } as const, 'camera' as PaneTab)
+const paneText = atom({ plugin: 'snap-cam', key: 'paneText' } as const, '')
 const pending = atom({ plugin: 'snap-cam', key: 'pending' } as const, [] as string[])
 const phoneTray = atom({ plugin: 'snap-cam', key: 'phoneTray' } as const, [] as InboxItem[])
 
@@ -34,11 +37,15 @@ const LIGHT_LEVELS = [0, 0.3, 0.6, 1]
 const FLASH_ORDER = ['off', 'auto', 'on']
 const CHIP = 72
 const LENS_LABEL: Record<string, string> = { ultraWide: 'ultra', wide: 'wide', telephoto: 'tele' }
-const SHORT: Record<SnapMode, string> = { iphone: 'iPhone', continuity: 'Continuity', desk: 'Desk View', mac: 'камера Mac' }
+const SHORT: Record<SnapMode, string> = {
+  iphone: 'iPhone', continuity: 'Continuity', desk: 'Desk View', mac: 'камера Mac', external: 'внешняя камера',
+}
 const short = (mode: SnapMode) => SHORT[mode]
-const SOURCE_MODES: Record<string, SnapMode> = { phone: 'iphone', continuity: 'continuity', deskView: 'desk', builtIn: 'mac' }
+const SOURCE_MODES: Record<string, SnapMode> = {
+  phone: 'iphone', continuity: 'continuity', deskView: 'desk', builtIn: 'mac', external: 'external',
+}
 
-type LiveLine = LiveFrame & { error?: string }
+type LiveLine = LiveFrame & { error?: string; exit?: string }
 type StateJson = {
   phone?: string
   caps?: {
@@ -55,10 +62,6 @@ type StateJson = {
 type RecentJson = { items?: { original: string }[] }
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), hi)
-
-// Chat-safe and stable per original, so a click finds its copy again.
-export const galleryName = (original: string) =>
-  `recent-${baseName(original).replace(/\.[^.]*$/, '').replace(/[^\w.-]+/g, '-')}.jpg`
 
 type Run = {
   stream: AsyncGenerator<unknown, unknown>
@@ -98,6 +101,13 @@ let infoBusy = false
 let launchNext = false
 // When the gallery was last read; null reads it at the next chance.
 let galleryAt: number | null = null
+// Frame folders of crashed sessions are swept once per module load.
+let swept = false
+// Live folders older than this belong to no running session.
+const STALE_MINUTES = 10
+// The gallery's question for `ask`; empty summarizes.
+let question = ''
+let reading = false
 
 function stopLive(): void {
   startGen += 1
@@ -116,6 +126,12 @@ async function startLive($: EngineInterface, mode: SnapMode, surfaces: readonly 
     return
   }
   if (gen !== startGen) return
+  if (!swept) {
+    swept = true
+    // A running CLI touches its folder every poll, errors included, and recreates it if swept.
+    const stale = ['find', `${p.dir}/live`, '-mindepth', '1', '-maxdepth', '1', '-type', 'd', '!', '-name', LIVE_ID]
+    void $.process.run([...stale, '-mmin', `+${STALE_MINUTES}`, '-exec', 'rm', '-rf', '{}', '+']).catch(() => {})
+  }
   const blit = surfaces.includes('terminal')
   const source = mode === 'iphone' ? [] : ['--source', SOURCES[mode].source]
   const argv = [cli, 'live', '--preview-dir', `${p.dir}/live/${LIVE_ID}`, '--preview-size', String(LIVE_SIDE)]
@@ -143,14 +159,15 @@ async function startLive($: EngineInterface, mode: SnapMode, surfaces: readonly 
       }
       if (!me.stopped) {
         const { code } = await stream.result
+        const last = (stderr.trim().split('\n').pop() ?? '').replace(/^snapcam-cli: /, '')
         const why =
           code === CLI_USAGE ? 'Обнови SnapCam для Mac: этот snapcam-cli не умеет live'
-          : stderr.trim().split('\n').pop() || `snapcam-cli live: код ${code}`
+          : paneFailure({ exitCode: code ?? 1, reason: last || `snapcam-cli live: код ${code}` })
         await ended($, why)
       }
     } catch (error) {
       // Also an unload: $ may be gone, so nothing may throw from here.
-      if (!me.stopped) await ended($, String(error)).catch(() => {})
+      if (!me.stopped) await ended($, `snapcam-cli live: ${String(error)}`).catch(() => {})
     } finally {
       if (run === me) run = null
     }
@@ -164,7 +181,8 @@ async function ended($: EngineInterface, why: string): Promise<void> {
 
 async function onLine($: EngineInterface, me: Run, line: Partial<LiveLine>): Promise<void> {
   if (line.error) {
-    await update($, liveFrame, f => (f.error === line.error ? f : { ...f, error: line.error }))
+    const error = lineError(line.error, line.exit)
+    await update($, liveFrame, f => (f.error === error ? f : { ...f, error }))
     return
   }
   if (!line.preview || !line.seq) return
@@ -180,6 +198,14 @@ async function onLine($: EngineInterface, me: Run, line: Partial<LiveLine>): Pro
       f.height === next.height && !f.error && f.seq > 0
     return !me.everyFrame && same ? f : next
   })
+}
+
+// A known CLI reason alone; anything else with what failed.
+function lineError(error: string, exit?: string): string {
+  const known = paneReason(error)
+  if (known !== error) return known
+
+  return paneFailure({ exitCode: Number(exit ?? 1), reason: error })
 }
 
 // A file source first; a refusal switches to bytes, repeated refusals stop the blits.
@@ -282,7 +308,7 @@ async function refreshInfo($: EngineInterface): Promise<void> {
     launchNext = false
     const res = await runCli($, cli, ['state', '--json', ...(launch ? [] : ['--no-launch'])], 30)
     if (res.exitCode !== 0) {
-      await setNote($, 'state', cliFailure(res))
+      await setNote($, 'state', paneFailure(res))
       return
     }
     await update($, cameraInfo, () => toInfo(parseJson<StateJson>(res.stdout)))
@@ -310,13 +336,13 @@ async function readGallery($: EngineInterface): Promise<void> {
   if (!cli) return
   const res = await runCli($, cli, ['recent', String(GALLERY_COUNT), '--json', '--no-launch'], 30)
   if (res.exitCode !== 0) {
-    await setNote($, 'recent', cliFailure(res))
+    await setNote($, 'recent', paneFailure(res))
     return
   }
   await setNote($, 'recent', '')
   const items: RecentItem[] = (parseJson<RecentJson>(res.stdout).items ?? []).map(item => ({
     original: item.original,
-    name: galleryName(item.original),
+    name: recentName(item.original),
   }))
   for (const item of items) {
     if (!(await $.fs.exists(`${p.thumbs}/${item.name}`))) await makeThumb($, p, item.original, item.name)
@@ -333,7 +359,7 @@ async function control($: EngineInterface, args: string[]): Promise<void> {
   if (!cli) return
   const res = await runCli($, cli, [...args, '--json'], 30)
   if (res.exitCode !== 0) {
-    await setNote($, 'control', cliFailure(res))
+    await setNote($, 'control', paneFailure(res))
     return
   }
   const framing = parseJson<{ framing: Framing }>(res.stdout).framing
@@ -355,6 +381,50 @@ async function toggleRecent($: EngineInterface, item: RecentItem): Promise<void>
     return
   }
   await update($, pending, list => (list.includes(dest) ? list : [...list, dest]))
+}
+
+// The newest attached gallery photo, else the last shot.
+async function readTarget($: EngineInterface): Promise<string[]> {
+  const p = await paths($)
+  const attached = new Set(await read($, pending))
+  const photo = (await read($, gallery)).find(item => attached.has(`${p.snaps}/${item.name}`))
+
+  return photo ? [photo.original] : ['--recent', '1']
+}
+
+// Gallery `read` (OCR) or `ask` (the Mac's model), answered under the buttons.
+async function readPhoto($: EngineInterface, what: 'read' | 'ask'): Promise<void> {
+  if (reading) return
+  const p = await paths($)
+  const cli = await findCli($, p)
+  if (!cli) return
+  reading = true
+  try {
+    await update($, paneText, () => 'Читаю…')
+    const target = await readTarget($)
+    const asked = question.trim()
+    const argv =
+      what === 'read' ? ['ocr', ...target, '--json'] : ['ask', ...target, '--json', ...(asked ? ['--question', asked] : [])]
+    const res = await runCli($, cli, argv, READ_TIMEOUT_S)
+    if (res.exitCode !== 0) {
+      await update($, paneText, () => '')
+      await setNote($, 'read', paneFailure(res, what === 'ask' ? 'ask' : undefined))
+      return
+    }
+    await setNote($, 'read', '')
+    if (what === 'read') {
+      await update($, paneText, () => describeText(parseJson<{ photos: PhotoText[] }>(res.stdout).photos ?? []))
+    } else {
+      const json = parseJson<{ answer: string; photos: string[] }>(res.stdout)
+      const names = (json.photos ?? []).map(baseName).join(', ')
+      await update($, paneText, () => `${json.answer ?? ''}${names ? `\n\n(Фото: ${names})` : ''}`)
+    }
+  } catch (error) {
+    await update($, paneText, () => '')
+    await setNote($, 'read', `Не удалось прочитать фото: ${error instanceof Error ? error.message : String(error)}`)
+  } finally {
+    reading = false
+  }
 }
 
 // A tray photo off goes to `dismissed`; back on leaves it.
@@ -410,15 +480,18 @@ export function startLiveClock($: EngineInterface): void {
   $.clock.every(TICK_MS, () => void tick($))
 }
 
+// The pane closed: stop the stream and drop its frame folder.
+export async function closeLive($: EngineInterface): Promise<void> {
+  stopLive()
+  infoAt = null
+  lastSvg = null
+  const p = await paths($)
+  void $.process.run(['rm', '-rf', `${p.dir}/live/${LIVE_ID}`]).catch(() => {})
+}
+
 export function registerLive(on: On): void {
   on('ui.close', async ($, e, next) => {
-    if (e.id === LIVE_PANE) {
-      stopLive()
-      infoAt = null
-      lastSvg = null
-      const p = await paths($)
-      void $.process.run(['rm', '-rf', `${p.dir}/live/${LIVE_ID}`]).catch(() => {})
-    }
+    if (e.id === LIVE_PANE) await closeLive($)
 
     return next(e)
   })
@@ -453,6 +526,29 @@ export function registerLive(on: On): void {
       const inboxChips = await Promise.all(listed.map(item => chip(item.name)))
       const recentChips = await Promise.all(recent.map(item => chip(item.name)))
       const Svg = e.surface === 'terminal' ? null : $.ui.resolve(e).Svg
+      const { Input } = $.ui.resolve(e)
+      const text = await read($, paneText)
+      const readRow = (
+        <Box key="read-row" flexDirection="row" gap={1} alignItems="center">
+          <Button key="read" label="📝 Текст" onPress={() => readPhoto($, 'read')} />
+          <Button key="ask" label="✨ Спросить" onPress={() => readPhoto($, 'ask')} />
+          {e.surface !== 'mobile' && (
+            <Input
+              key="question"
+              placeholder="Вопрос (пусто — кратко)"
+              value={question}
+              submitLabel="спросить"
+              onInput={value => {
+                question = value
+              }}
+              onSubmit={value => {
+                question = value
+                return readPhoto($, 'ask')
+              }}
+            />
+          )}
+        </Box>
+      )
       const cell = (key: string, name: string, svg: string | null, isOn: boolean, press: () => Promise<void>) => (
         <Box key={`cell:${key}`} flexDirection="column" alignItems="center">
           {svg && Svg && <Svg source={svg} alt={name} width={CHIP} height={CHIP} />}
@@ -487,6 +583,9 @@ export function registerLive(on: On): void {
             </Box>
           )}
           <Button key="gallery:refresh" label="↻ Обновить" plain dimColor onPress={() => void refreshGallery($)} />
+          <Text dimColor>Текст и вопросы — по самому новому фото, прикреплённому из галереи, иначе по последнему снимку.</Text>
+          {readRow}
+          {text ? <Box key="read-text"><Text>{text}</Text></Box> : null}
           {noteRow}
         </Box>
       )

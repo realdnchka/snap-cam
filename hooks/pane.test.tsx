@@ -2,6 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { A, HOME, LIVE, ORIGINAL, RECENT, fakePaneMac as fakeMac, openPane } from './pane.fake.ts'
 import type { Fake } from './pane.fake.ts'
+import { closeLive } from './live.tsx'
 
 test('the pane streams live frames while its camera tab shows, and stops when hidden', async ($, on) => {
   let shown = true
@@ -173,7 +174,7 @@ test('an error after frames shows over the frozen frame', async ($, on) => {
   await clock.advance(1000)
 
   expect(await ui.find({ type: 'Svg' })).toBeDefined()
-  expect((await ui.find({ key: 'live' }))?.text).toContain('Timed out')
+  expect((await ui.find({ key: 'live' }))?.text).toContain('Камера не ответила вовремя. Она ещё включена?')
   await ui.unmount()
 })
 
@@ -251,10 +252,10 @@ test('a failed state read shows why, and the next good one clears it without lau
   const fake = fakeMac(on, () => true, { stateFails: 1 })
   const ui = await openPane($)
   await clock.advance(1000)
-  expect((await ui.drawn()) && (await ui.find({ type: 'Text', text: /not reachable/ }))).toBeDefined()
+  expect((await ui.drawn()) && (await ui.find({ type: 'Text', text: /недоступны: SnapCam не запущен/ }))).toBeDefined()
 
   await clock.advance(11_000)
-  expect(await ui.find({ type: 'Text', text: /not reachable/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /недоступны/ })).toBeUndefined()
   const states = fake.calls.filter(args => args[0] === 'state')
   expect(states[0]).not.toContain('--no-launch')
   expect(states.at(-1)).toContain('--no-launch')
@@ -272,4 +273,140 @@ test('the band button opens the pane and starts the stream', async ($, on) => {
   expect(fake.opened).toBe(true)
   expect(fake.spawns).toHaveLength(1)
 
+})
+
+test('an app message the pane has no translation for passes through', async ($, on) => {
+  const clock = mock.clock(on)
+  fakeMac(on, () => true, { stateFails: 1, stateError: 'snapcam-cli: iPhone «Тест» не отвечает.' })
+  const ui = await openPane($)
+  await clock.advance(1000)
+
+  expect(await ui.find({ type: 'Text', text: /iPhone «Тест» не отвечает\./ })).toBeDefined()
+  await ui.unmount()
+})
+
+// The kit can't raise ui.close and loads its own module copy, so the handler runs on a stub.
+test('closing the pane removes its frame folder', async () => {
+  const runs: string[][] = []
+  const engine = {
+    env: { get: async () => HOME },
+    process: { run: async (argv: string[]) => (runs.push(argv), { exitCode: 0, stdout: '', stderr: '' }) },
+  }
+  await closeLive(engine as never)
+  const rm = runs.find(argv => argv[0] === 'rm') ?? []
+  expect(rm.slice(0, 2)).toEqual(['rm', '-rf'])
+  expect(rm[2]?.startsWith(`${LIVE}/`)).toBe(true)
+  expect(rm[2]?.length).toBeGreaterThan(`${LIVE}/`.length)
+})
+
+test('a pane gone from the list stops the stream and the command starts a new one', async ($, on) => {
+  let shown = true
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => shown)
+  const ui = await openPane($)
+  await clock.advance(1000)
+  const dir = fake.spawns[0]?.[2] ?? ''
+  expect(dir.startsWith(LIVE)).toBe(true)
+
+  shown = false
+  await clock.advance(6000)
+  expect(fake.stopped).toBe(1)
+  expect(fake.spawns).toHaveLength(1)
+  await ui.unmount()
+
+  shown = true
+  const before = fake.calls.filter(args => args[0] === 'state').length
+  await $.command.run({ command: 'snap', args: 'pane' } as never)
+  await clock.advance(1000)
+  const states = fake.calls.filter(args => args[0] === 'state')
+  expect(states.length).toBeGreaterThan(before)
+  expect(states.at(-1)).not.toContain('--no-launch')
+  expect(fake.spawns).toHaveLength(2)
+})
+
+test('an external camera that state lists joins the source cycle', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { sources: [{ id: 'usb', kind: 'external', name: 'USB Camera', selected: false }] })
+  const ui = await openPane($)
+  await clock.advance(1000)
+
+  await ui.press({ key: 'camera' })
+  await clock.advance(1000)
+  expect((await ui.find({ key: 'camera' }))?.props.label).toContain('внешняя камера')
+  await ui.press({ key: 'camera' })
+  await clock.advance(1000)
+  const spawn = fake.spawns.at(-1) ?? []
+  expect(spawn[spawn.indexOf('--source') + 1]).toBe('external')
+  await ui.unmount()
+})
+
+test('the gallery reads the text of the newest photo', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true)
+  const ui = await openPane($)
+  await ui.press({ key: 'tab:gallery' })
+  await clock.advance(1000)
+
+  await ui.press({ key: 'read' })
+  expect(fake.calls.find(args => args[0] === 'ocr')).toEqual(['ocr', '--recent', '1', '--json'])
+  expect((await ui.find({ key: 'read-text' }))?.text).toContain('Hello from the receipt')
+  await ui.unmount()
+})
+
+test('a question asks about the attached photo', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true)
+  const ui = await openPane($)
+  await ui.press({ key: 'tab:gallery' })
+  await clock.advance(1000)
+  await ui.press({ key: `recent:${RECENT}` })
+
+  await ui.input({ key: 'question', text: 'Что купили?' })
+  expect(fake.calls.find(args => args[0] === 'ask')).toEqual(['ask', ORIGINAL, '--json', '--question', 'Что купили?'])
+  expect((await ui.find({ key: 'read-text' }))?.text).toContain('A grocery receipt.')
+  await ui.unmount()
+})
+
+test('a failed question says why in Russian', async ($, on) => {
+  const clock = mock.clock(on)
+  fakeMac(on, () => true, { askFails: true })
+  const ui = await openPane($)
+  await ui.press({ key: 'tab:gallery' })
+  await clock.advance(1000)
+
+  await ui.press({ key: 'ask' })
+  expect(await ui.find({ type: 'Text', text: /Apple Intelligence выключен или недоступен/ })).toBeDefined()
+  expect(await ui.find({ key: 'read-text' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('two originals that share a name get their own gallery copies', async ($, on) => {
+  const clock = mock.clock(on)
+  fakeMac(on, () => true, { recent: ['/D/IMG 1.heic', '/D/IMG 1.jpg'] })
+  const ui = await openPane($)
+  await ui.press({ key: 'tab:gallery' })
+  await clock.advance(1000)
+
+  expect(await ui.find({ key: 'recent:recent-IMG-1-heic.jpg' })).toBeDefined()
+  expect(await ui.find({ key: 'recent:recent-IMG-1.jpg' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('stale frame folders of other sessions are swept once', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true)
+  const ui = await openPane($)
+  await clock.advance(1000)
+  await ui.press({ key: 'camera' })
+  await clock.advance(1000)
+  expect(fake.spawns.length).toBeGreaterThan(1)
+
+  const own = (fake.spawns[0]?.[2] ?? '').slice(LIVE.length + 1)
+  const sweeps = fake.runs.filter(argv => argv[0] === 'find')
+  expect(sweeps).toHaveLength(1)
+  const sweep = sweeps[0] ?? []
+  expect(sweep[1]).toBe(LIVE)
+  expect(sweep).toContain('-mmin')
+  expect(sweep.join(' ')).toContain(`! -name ${own}`)
+  await ui.unmount()
 })

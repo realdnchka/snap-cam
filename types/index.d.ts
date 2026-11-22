@@ -1,5 +1,5 @@
-// take_photo cameras; the band shows iphone and desk.
-export type SnapMode = 'iphone' | 'continuity' | 'desk' | 'mac'
+// take_photo cameras, plus external in the pane; the band shows iphone and desk.
+export type SnapMode = 'iphone' | 'continuity' | 'desk' | 'mac' | 'external'
 
 // A phone-shutter photo waiting in the Mac inbox, shown in the tray.
 export type InboxItem = { id: string; original: string; name: string }
@@ -54,6 +54,7 @@ declare module 'claude-code' {
       cameraInfo: CameraInfo | null
       gallery: RecentItem[]
       paneNote: string
+      paneText: string
     }
   }
 }

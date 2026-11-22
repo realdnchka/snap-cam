@@ -223,7 +223,7 @@ test('take_inbox is gone; recent_photos reads history and leaves the tray alone'
   const blocks = done.result ?? []
   expect(blocks.map(block => block.type)).toEqual(['text', 'image', 'image'])
   expect(blocks[0]?.text).toContain('newest first')
-  expect(blocks[0]?.text).toContain('/home/Pictures/SnapCam/ClaudeSnaps/recent-SnapCam-2026-11-21-at-10.00.02.jpg')
+  expect(blocks[0]?.text).toContain('/home/Pictures/SnapCam/ClaudeSnaps/recent-SnapCam-2026-11-21-at-10.00.02-heic.jpg')
   expect(blocks[0]?.text).toContain('iPhone shutter')
   expect(blocks[1]?.source).toEqual({ type: 'base64', media_type: 'image/jpeg', data: 'AA==' })
 
@@ -435,8 +435,8 @@ test('recent_photos keeps same-named photos apart, lists unreadable ones, cleans
   const text = done.result?.[0]?.text ?? ''
   expect(done.deny).toBeUndefined()
   expect(done.result?.map(block => block.type)).toEqual(['text', 'image', 'image'])
+  expect(text).toContain('/home/Pictures/SnapCam/ClaudeSnaps/recent-IMG-1-heic.jpg')
   expect(text).toContain('/home/Pictures/SnapCam/ClaudeSnaps/recent-IMG-1.jpg')
-  expect(text).toContain('/home/Pictures/SnapCam/ClaudeSnaps/recent-IMG-1-2.jpg')
   expect(text).toContain("/D/broken.heic: Can't decode broken.heic")
   const recent = runs.find(argv => argv[0] === CLI) ?? []
   const staging = recent[recent.indexOf('--preview-dir') + 1] ?? ''
