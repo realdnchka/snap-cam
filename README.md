@@ -90,3 +90,7 @@ and takes them from the inbox, so each is used once; if the take fails they stay
 for the next prompt. ✕ drops one from the tray but leaves it in the inbox. A prompt takes
 the tray only when the session is also open on a surface that shows it (terminal, desktop,
 IDE); in a session seen only from Claude mobile the tray waits.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
