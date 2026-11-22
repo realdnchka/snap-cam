@@ -254,7 +254,7 @@ export const contract = {
         "status" : "planned"
       },
       "formatSize" : {
-        "detail" : "inspector (format, size); quality: phone default",
+        "detail" : "inspector (format, size), shared with the iPhone; quality: phone default",
         "status" : "available"
       },
       "frameLens" : {

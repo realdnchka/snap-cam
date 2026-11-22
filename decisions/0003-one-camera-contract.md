@@ -69,17 +69,18 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 | Command | Mac app | iPhone screen | Camera Control | Claude pane | CLI | MCP | App Intents |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | shoot | ✅ iPhone or a Mac camera, source picker | ✅ shutter; to the Mac inbox | ✅ full press | ✅ `shoot`, `camera` picks the source | ✅ `capture`, `capture --source` | ✅ `take_photo camera` | 🔜 «Снять фото» |
-| frame: lens | ✅ inspector, live | ✅ lens buttons | ✅ system zoom slider switches lenses | ✅ `lens:*` buttons, live | ✅ `frame --lens`, `capture --lens` | ✅ `frame lens`, `take_photo lens` | 🔜 |
-| frame: zoom | ✅ inspector, live | ✅ pinch, slider | ✅ system slider | ✅ `zoom-` `zoom+`, live | ✅ `frame --zoom`, `capture --zoom` | ✅ `frame zoom`, `take_photo zoom` | 🔜 |
-| flash | ✅ inspector, live; on = light | ✅ flash menu; on = light | ✅ picker | ✅ `flash` cycles; on = light | ✅ `flash`, `capture --flash` | ✅ `take_photo flash`; on = light | 🔜 |
+| frame: lens | ✅ inspector, live | ✅ zoom ruler stops | ✅ system zoom slider switches lenses | ✅ `lens:*` buttons, live | ✅ `frame --lens`, `capture --lens` | ✅ `frame lens`, `take_photo lens` | 🔜 |
+| frame: zoom | ✅ inspector, live | ✅ pinch, zoom ruler | ✅ system slider | ✅ `zoom-` `zoom+`, live | ✅ `frame --zoom`, `capture --zoom` | ✅ `frame zoom`, `take_photo zoom` | 🔜 |
+| focus / AE-AF lock | 🔜 click in the live view | ✅ tap; hold = AE/AF lock | — | — | — | — | — |
+| flash | ✅ inspector, live; on = light | ✅ flash dial; on = light | ✅ picker | ✅ `flash` cycles; on = light | ✅ `flash`, `capture --flash` | ✅ `take_photo flash`; on = light | 🔜 |
 | light | ✅ inspector brightness, live | ✅ brightness slider while on | ✅ brightness slider | ✅ `light` steps | ✅ `light` | ✅ `light level` | 🔜 |
-| exposure | ✅ inspector, live | ✅ slider | ✅ system slider | ✅ `ev-` `ev0` `ev+` | ✅ `exposure` | ✅ `frame exposure` | — |
-| live video | ✅ iPhone live view, Mac camera preview | ✅ viewfinder | — | ✅ `live`, 5 fps | ✅ `live --fps --png` | — | — |
+| exposure | ✅ inspector, live | ✅ exposure ruler | ✅ system slider | ✅ `ev-` `ev0` `ev+` | ✅ `exposure` | ✅ `frame exposure` | — |
+| live video | ✅ iPhone live view (turbo, enhance), Mac camera preview | ✅ viewfinder | — | ✅ `live`, 5 fps | ✅ `live --fps --png` | — | — |
 | peek | ✅ inspector | — | — | — (live video instead) | ✅ `peek --preview`, `peek --source` | ✅ `peek camera` | — |
 | state / caps | ✅ | ✅ | — | ✅ `status` line | ✅ `state`, `caps`, `status` | ✅ `camera_state` | — |
 | inbox | — (phone shots go to history; the queue is for Claude) | ✅ offline queue (unsent shots) | — (sends) | ✅ tray, gallery `inbox:*` | ✅ `inbox`, `inbox --take --id` | — (tray only) | 🔜 |
 | recent photos | ✅ history grid | — (last photo only) | — | ✅ gallery `recent:*` | ✅ `recent` | ✅ `recent_photos count` | 🔜 |
-| format / size | ✅ inspector | — | — | — | ✅ `capture --format --size` | — (Mac default) | — |
+| format / size / quality | ✅ inspector (format, size), shared with the iPhone; quality: phone default | ✅ settings sheet; the Mac's values | — | — | ✅ `capture --format --size --quality` | — (Mac default; quality: phone default) | — |
 | pair / forget | ✅ | ✅ | — | — | ✅ `pair` | — | — |
 | read text | ✅ history: Read Text | — (the Mac reads) | — | 🔜 | ✅ `ocr`, `ocr --recent` | ✅ `read_text path recent` | ✅ «Read Text in Photo» |
 | ask about a photo | ✅ history: Ask | — (the Mac answers) | — | 🔜 | ✅ `ask --question`, `ask --recent` | ✅ `ask_photo question path recent` | 🔜 |
