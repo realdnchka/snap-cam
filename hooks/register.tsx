@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { InboxItem, SnapMode } from '../types'
 import {
   CAMERAS, CLI_UNAVAILABLE, FLASHES, INSTALL, LENSES, MAC_TIMEOUT_S, READ_TIMEOUT_S, RECENT_MAX, SHORT, SIDE, SOURCES, THUMB,
-  baseName, chipSvg, cliFailure, describeText, findCli, lastMode, makeThumb, needCli, parseJson, paths, photoArgs,
+  baseName, chipSvg, cliFailure, describeText, findCli, lastMode, makeThumb, needCli, paneFailure, parseJson, paths, photoArgs,
   recentName, runCli, shoot, snapToTray, stamp, times,
 } from './cli'
 import type { Cli, Lens, Paths, PhotoText } from './cli'
@@ -151,7 +151,7 @@ async function takeTray($: EngineInterface, items: readonly InboxItem[]): Promis
   const args = ['inbox', '--take', ...ids.flatMap(id => ['--id', id])]
   const run = await runCli($, cli, [...args, '--preview-dir', p.staging, '--preview-size', String(SIDE), '--json', '--no-launch'], 60)
   if (run.exitCode !== 0) {
-    $.ui.toast(`SnapCam: фото с iPhone не забраны из входящих и остались в лотке (${run.reason})`)
+    $.ui.toast(`SnapCam: фото с iPhone не забраны из входящих и остались в лотке. ${paneFailure(run)}`)
     return []
   }
   await forget($, ids)

@@ -186,12 +186,20 @@ export async function openPane($: Engine, surface: RenderSurface = 'desktop') {
 }
 
 // `events` orders kills and runs, so a test sees what came first.
-export type Stub = { $: never; runs: string[][]; spawns: string[][]; kills: number; events: string[] }
+// `tick` runs the clock callbacks; `opens` counts $.ui.open calls.
+export type Stub = { $: never; runs: string[][]; spawns: string[][]; kills: number; events: string[]; opens: number; tick: () => Promise<void> }
 
 // A bare $ for the test's own copy of live.tsx, which the kit's engine doesn't load.
 export function stubEngine(): Stub {
   const state = new Map<string, { value: unknown; version: number }>()
-  const stub: Stub = { $: undefined as never, runs: [], spawns: [], kills: 0, events: [] }
+  const every: (() => void)[] = []
+  const stub: Stub = {
+    $: undefined as never, runs: [], spawns: [], kills: 0, events: [], opens: 0,
+    tick: async () => {
+      for (const run of every) run()
+      await settle()
+    },
+  }
   const spawn = ({ argv }: { argv: string[] }) => {
     stub.spawns.push(argv.slice(1))
     let end: (() => void) | null = null
@@ -231,13 +239,20 @@ export function stubEngine(): Stub {
       },
     },
     ui: {
-      open: async () => ({ isPlaced: true }),
+      open: async () => {
+        stub.opens += 1
+        return { isPlaced: true }
+      },
       panes: async () => [{ id: 'snap-live', title: 'SnapCam', isShown: true, isFocused: false, isPlaced: true }],
       redraw: async () => {},
     },
     session: { surfaces: async () => ['desktop'] },
     // Sleeps never end: a close waits for the kill, not the timeout.
-    clock: { now: async () => 0, sleep: () => new Promise<void>(() => {}) },
+    clock: {
+      now: async () => 0,
+      sleep: () => new Promise<void>(() => {}),
+      every: (_ms: number, run: () => void) => void every.push(run),
+    },
   }
   stub.$ = engine as never
 

@@ -10,7 +10,7 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.11.1) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.11.2) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API); imports `cli.ts` (CLI helpers, `shoot`) and `live.tsx` (the pane) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}`; pane (0.10.0): `inbox, paneTab, paneCamera, paneSource, liveFrame, cameraInfo, gallery, paneNote, paneText` |
 | `README.md` | user-facing summary |
@@ -151,14 +151,16 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   (protocol 9): an older CLI writes only on frames and never recreates the folder, so a session
   whose stream errors for over 10 min can lose its folder to another session's sweep. A close
   awaits the child's kill (≤ 2 s) before `rm -rf`, so a poll in flight can't bring it back.
+  The `ui.close` hook passes the close on at once and cleans up after (0.11.2): the engine lists a
+  closing pane until the chain ends, and a held close let `tick` restart the stream. A module flag
+  `closed` (set by the close, cleared only by `openLive`) keeps ticks from streaming a closed pane.
   The camera cycle also offers every external camera `state` lists, by id (`--source <id>`,
   the state's name on the button and status line, `paneSource` atom; not in the MCP enums);
   `last-mode.txt` may say `external` and Fast Capture then shoots the first one.
-  Pane and band messages are Russian (`paneFailure`: model/OCR answers that explain themselves
-  — Apple Intelligence off/not ready/unsupported, no text, declined, language, too long,
-  `No photos in …` — alone; others prefixed by exit code with known CLI reasons translated;
-  the app's own pass through; `SHORT` names cameras in the band); MCP denies stay English
-  (`cliFailure`, `SOURCES.title`).
+  Pane and band messages are one Russian message (`paneFailure`, 0.11.2): a translated or
+  app-localized (Cyrillic) reason alone, else a Russian sentence by exit code — English the mod
+  can't translate is dropped; the camera tab hides a failed `state` note while the stream shows
+  its error; `SHORT` names cameras in the band. MCP denies stay English (`cliFailure`, `SOURCES.title`).
   Terminal: a file PNG source first; a refused blit switches to bytes (iTerm2), 10 refusals in a
   row stop blitting. The video's rows leave 10 for the controls. Errors show over the frozen
   frame; a pane note is cleared by the next success of whatever wrote it. Pane cells of ADR 0003 name control keys; `contract.test.ts` checks each against
@@ -248,6 +250,10 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 
 ## Open / unverified
+
+- 0.11.2 (branch `fix/device-9`): the pane reopened after the person closed it, and pane errors
+  came out Russian + English. Checked with `claude plugin test` only; the close needs a look in
+  the desktop app.
 
 - 0.11.1 (branch `fix/leftovers-48` here and in snapcam-app, board card «48 хвостов»):
   - pane `📝 Текст` / `✨ Спросить` on the gallery (ADR 0003 pane cells ✅), on the attached

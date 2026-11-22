@@ -4,7 +4,7 @@ import type { EngineInterface, On } from 'claude-code'
 import type { CameraInfo, Framing, InboxItem, LiveFrame, PaneTab, RecentItem, SnapMode } from '../types'
 import {
   CLI_USAGE, INSTALL_RU, READ_TIMEOUT_S, SHORT, SIDE, SOURCES, baseName, chipSvg, findCli, makeThumb, paneFailure,
-  paneOcrText, paneReason, parseJson, paths, recentName, runCli, snapToTray, times,
+  paneOcrText, parseJson, paths, recentName, runCli, snapToTray, times,
 } from './cli'
 import type { PhotoText } from './cli'
 
@@ -113,6 +113,8 @@ let reading = false
 let textFor = ''
 // How long a close waits for the child to die before removing its folder.
 const KILL_WAIT_MS = 2000
+// Set by a close, cleared only by openLive: ticks never revive a closed pane.
+let closed = false
 
 // Stops the child; resolves once it is gone or after KILL_WAIT_MS.
 function stopLive($: EngineInterface): Promise<void> {
@@ -176,13 +178,12 @@ async function startLive($: EngineInterface, mode: SnapMode, id: string, surface
         const last = (stderr.trim().split('\n').pop() ?? '').replace(/^snapcam-cli: /, '')
         const why =
           code === CLI_USAGE ? 'Обнови SnapCam для Mac: этот snapcam-cli не умеет live'
-          : paneFailure({ exitCode: code ?? 1, reason: last || `snapcam-cli live: код ${code}` })
+          : paneFailure({ exitCode: code ?? 1, reason: last })
         await ended($, why)
       }
     } catch (error) {
       // Also an unload: $ may be gone, so nothing may throw from here.
-      const why = error instanceof Error ? error.message : String(error)
-      if (!me.stopped) await ended($, `Не удалось запустить snapcam-cli live: ${why}`).catch(() => {})
+      if (!me.stopped) await ended($, 'Не удалось запустить видео SnapCam.').catch(() => {})
     } finally {
       if (run === me) run = null
     }
@@ -196,7 +197,7 @@ async function ended($: EngineInterface, why: string): Promise<void> {
 
 async function onLine($: EngineInterface, me: Run, line: Partial<LiveLine>): Promise<void> {
   if (line.error) {
-    const error = lineError(line.error, line.exit)
+    const error = paneFailure({ exitCode: Number(line.exit ?? 1), reason: line.error })
     await update($, liveFrame, f => (f.error === error ? f : { ...f, error }))
     return
   }
@@ -213,14 +214,6 @@ async function onLine($: EngineInterface, me: Run, line: Partial<LiveLine>): Pro
       f.height === next.height && !f.error && f.seq > 0
     return !me.everyFrame && same ? f : next
   })
-}
-
-// A known CLI reason alone; anything else with what failed.
-function lineError(error: string, exit?: string): string {
-  const known = paneReason(error)
-  if (known !== error) return known
-
-  return paneFailure({ exitCode: Number(exit ?? 1), reason: error })
 }
 
 // A file source first; a refusal switches to bytes, repeated refusals stop the blits.
@@ -255,7 +248,8 @@ async function tick($: EngineInterface): Promise<void> {
   ticking = true
   try {
     const pane = (await $.ui.panes()).find(one => one.id === LIVE_PANE)
-    const shown = !!pane && pane.isShown && pane.isPlaced
+    // A closing pane is still listed until its ui.close chain ends.
+    const shown = !closed && !!pane && pane.isShown && pane.isPlaced
     const tab = await read($, paneTab)
     const mode = await read($, paneCamera)
     const id = await read($, paneSource)
@@ -468,9 +462,9 @@ async function readPhoto($: EngineInterface, what: 'read' | 'ask'): Promise<void
       const names = (json.photos ?? []).map(baseName).join(', ')
       await update($, paneText, () => `${json.answer ?? ''}${names ? `\n\nФото: ${names}` : ''}`)
     }
-  } catch (error) {
+  } catch {
     await update($, paneText, () => '')
-    await setNote($, 'read', `Не удалось прочитать фото: ${error instanceof Error ? error.message : String(error)}`)
+    await setNote($, 'read', 'Не удалось прочитать фото.')
   } finally {
     reading = false
   }
@@ -490,6 +484,7 @@ async function toggleInbox($: EngineInterface, item: InboxItem): Promise<void> {
 }
 
 export async function openLive($: EngineInterface): Promise<boolean> {
+  closed = false
   const opened = await $.ui.open({ id: LIVE_PANE, title: TITLE })
   infoAt = null
   launchNext = true
@@ -538,6 +533,7 @@ export function startLiveClock($: EngineInterface): void {
 
 // Pane closed: kill the stream first, or a running poll recreates the folder.
 export async function closeLive($: EngineInterface): Promise<void> {
+  closed = true
   const stopped = stopLive($)
   infoAt = null
   lastSvg = null
@@ -547,10 +543,14 @@ export async function closeLive($: EngineInterface): Promise<void> {
 }
 
 export function registerLive(on: On): void {
+  // Close at once; the cleanup runs after, so nothing holds the pane open meanwhile.
   on('ui.close', async ($, e, next) => {
-    if (e.id === LIVE_PANE) await closeLive($)
+    if (e.id !== LIVE_PANE) return next(e)
+    const cleanup = closeLive($)
+    const done = await next(e)
+    await cleanup
 
-    return next(e)
+    return done
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: LIVE_PANE }, async ($, e) => {
@@ -766,7 +766,8 @@ export function registerLive(on: On): void {
         </Box>
         {lensRow}
         {lightRow}
-        {noteRow}
+        {/* A failed state poll and the stream's error tell one outage. */}
+        {frame.error && noteFrom === 'state' ? null : noteRow}
       </Box>
     )
   })

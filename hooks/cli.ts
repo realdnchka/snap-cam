@@ -204,15 +204,24 @@ const SELF: Record<string, string> = {
 }
 const SELF_PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
   [/^No photos in (.+)$/, m => `В папке ${m[1]} ещё нет фото.`],
-  [/^The on-device model failed: (.+)$/s, m => `Модель на Mac не справилась: ${m[1]}`],
+  [/^The on-device model failed: (.+)$/s, m => `Модель на Mac не справилась${inner(m[1])}`],
 ]
 
 // Reasons that carry a path or a nested reason.
 const LANDING = /(?:The last photo is )?still on its way from the iPhone \((.+?)\)\. Try again shortly\./g
 const NESTED: [RegExp, (m: RegExpExecArray) => string][] = [
-  [/^SnapCam didn't start: (.+)$/s, m => `SnapCam не запустился: ${paneReason(m[1] ?? '')}`],
-  [/^Couldn't open SnapCam\.app: (.+)$/s, m => `Не удалось открыть SnapCam.app: ${m[1]}`],
+  [/^SnapCam didn't start: (.+)$/s, m => `SnapCam не запустился${inner(m[1])}`],
+  [/^Couldn't open SnapCam\.app: (.+)$/s, m => `Не удалось открыть SnapCam.app${inner(m[1])}`],
 ]
+
+const russian = (text: string) => /[А-Яа-яЁё]/.test(text)
+
+// A nested reason as `: <Russian>`, or a full stop when it has no Russian words.
+function inner(reason = ''): string {
+  const said = paneReason(reason).trim()
+
+  return russian(said) ? `: ${said}` : '.'
+}
 
 // A self-explaining reason in Russian, or null.
 function selfReason(reason: string): string | null {
@@ -239,17 +248,16 @@ export function paneReason(reason: string): string {
   return reason.replace(LANDING, (_, path: string) => `Фото ещё едет с iPhone (${path.split('/').pop()}). Повтори чуть позже.`)
 }
 
-// cliFailure in Russian, for the pane and the band; the model keeps English.
+// cliFailure as one Russian message for the pane and the band; the model keeps English.
 export function paneFailure(run: Pick<Cli, 'exitCode' | 'reason'>): string {
-  const alone = selfReason(run.reason)
-  if (alone) return alone
-  const why =
-    run.exitCode === CLI_UNAVAILABLE ? 'SnapCam для Mac, iPhone или камера недоступны'
-    : run.exitCode === CLI_OFFLINE ? 'iPhone не подключился вовремя'
-    : run.exitCode === CLI_USAGE ? 'неверные аргументы — обнови SnapCam для Mac'
-    : 'камера или приложение сообщили об ошибке'
+  const said = paneReason(run.reason).trim()
+  // Translated or localized by the Mac app: alone. English we can't translate: dropped.
+  if (russian(said)) return said
 
-  return `${why}: ${paneReason(run.reason)}`
+  return run.exitCode === CLI_UNAVAILABLE ? 'SnapCam для Mac, iPhone или камера недоступны.'
+    : run.exitCode === CLI_OFFLINE ? 'iPhone не подключился вовремя.'
+    : run.exitCode === CLI_USAGE ? 'Неверные аргументы — обнови SnapCam для Mac.'
+    : 'Камера или приложение SnapCam сообщили об ошибке.'
 }
 
 // A failed CLI run; the UI formats `run` in Russian.
@@ -362,8 +370,8 @@ export async function snapToTray($: EngineInterface, mode: SnapMode, delay = 'ma
   } catch (error) {
     const why =
       error instanceof CliError ? paneFailure(error.run)
-      : error instanceof Error ? (error.message === INSTALL ? INSTALL_RU : error.message)
-      : String(error)
+      : error instanceof Error && error.message === INSTALL ? INSTALL_RU
+      : 'не удалось снять фото.'
     const msg = `SnapCam: ${why}`
     $.ui.toast(msg)
 

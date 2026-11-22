@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import { A, HOME, LIVE, MODEL_OFF, ORIGINAL, RECENT, fakePaneMac as fakeMac, openPane, settle, stubEngine } from './pane.fake'
 import type { Fake } from './pane.fake'
 import { recentName } from './cli'
-import { LIVE_PANE, closeLive, openLive, registerLive } from './live'
+import { LIVE_PANE, closeLive, openLive, registerLive, startLiveClock } from './live'
 
 test('the pane streams live frames while its camera tab shows, and stops when hidden', async ($, on) => {
   let shown = true
@@ -253,10 +253,10 @@ test('a failed state read shows why, and the next good one clears it without lau
   const fake = fakeMac(on, () => true, { stateFails: 1 })
   const ui = await openPane($)
   await clock.advance(1000)
-  expect((await ui.drawn()) && (await ui.find({ type: 'Text', text: /недоступны: SnapCam не запущен/ }))).toBeDefined()
+  expect((await ui.drawn()) && (await ui.find({ type: 'Text', text: 'SnapCam не запущен.' }))).toBeDefined()
 
   await clock.advance(11_000)
-  expect(await ui.find({ type: 'Text', text: /недоступны/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /SnapCam не запущен/ })).toBeUndefined()
   const states = fake.calls.filter(args => args[0] === 'state')
   expect(states[0]).not.toContain('--no-launch')
   expect(states.at(-1)).toContain('--no-launch')
@@ -314,6 +314,43 @@ test('closing the pane stops the stream and removes its frame folder', async () 
   // A poll still running would bring the folder back: rm only after the child is gone.
   expect(stub.events.indexOf(`rm -rf ${dir}`)).toBeGreaterThan(stub.events.indexOf('kill'))
   expect(passed).toHaveLength(1)
+})
+
+test('a closed pane stays closed: later ticks and state changes neither reopen nor restream it', async () => {
+  const hook = closeHook()
+  const stub = stubEngine()
+  startLiveClock(stub.$)
+  await openLive(stub.$)
+  await settle()
+  expect(stub.opens).toBe(1)
+  expect(stub.spawns).toHaveLength(1)
+  const states = () => stub.runs.filter(argv => argv[1] === 'state').length
+  const before = states()
+
+  // The engine still lists the pane while its close chain runs.
+  let passed = 0
+  const closing = hook(stub.$, { id: LIVE_PANE, origin: { kind: 'person' } }, async () => {
+    passed += 1
+    await stub.tick()
+  })
+  await closing
+  expect(passed).toBe(1)
+  expect(stub.kills).toBe(1)
+
+  for (let i = 0; i < 5; i += 1) await stub.tick()
+  const { state } = stub.$ as unknown as { state: { set: (ref: object, value: unknown) => Promise<unknown> } }
+  await state.set({ plugin: 'snap-cam', key: 'paneCamera' }, 'desk')
+  await state.set({ plugin: 'snap-cam', key: 'paneTab' }, 'camera')
+  for (let i = 0; i < 5; i += 1) await stub.tick()
+  expect(stub.opens).toBe(1)
+  expect(stub.spawns).toHaveLength(1)
+  expect(states()).toBe(before)
+
+  // Only the person's open brings it back.
+  await openLive(stub.$)
+  await settle()
+  expect(stub.opens).toBe(2)
+  expect(stub.spawns).toHaveLength(2)
 })
 
 test('closing another pane leaves the stream running', async () => {
@@ -482,7 +519,7 @@ test('a live error the pane has no words for is told by its exit code', async ($
   const ui = await openPane($)
   await clock.advance(1000)
 
-  expect((await ui.find({ key: 'live' }))?.text).toContain('iPhone не подключился вовремя: x')
+  expect((await ui.find({ key: 'live' }))?.text).toContain('iPhone не подключился вовремя.')
   await ui.unmount()
 })
 
@@ -492,7 +529,7 @@ test('a live child that ends with a reason on stderr shows it in Russian', async
   const ui = await openPane($)
   await clock.advance(1000)
 
-  expect((await ui.find({ key: 'live' }))?.text).toContain('SnapCam для Mac, iPhone или камера недоступны: SnapCam не запущен.')
+  expect((await ui.find({ key: 'live' }))?.text).toContain('SnapCam не запущен.')
   await ui.unmount()
 })
 
@@ -593,5 +630,18 @@ test('without SnapCam for Mac the shot and the read say so in Russian', async ($
   expect((await ui.find({ type: 'Text', text: /не установлен/ }))?.text).toBe('SnapCam для Mac не установлен: собери его в snapcam-app скриптом scripts/install-mac.sh')
   expect(fake.calls).toHaveLength(0)
   expect(JSON.stringify(await ui.drawn())).not.toContain('is not installed')
+  await ui.unmount()
+})
+
+test('a stream error and a failed state read show one Russian message, not both', async ($, on) => {
+  const clock = mock.clock(on)
+  const english = 'No paired iPhone nearby. Open SnapCam on the iPhone.'
+  fakeMac(on, () => true, { stateFails: 1, stateError: `snapcam-cli: ${english}`, tail: [{ error: english, exit: '69' }] })
+  const ui = await openPane($)
+  await clock.advance(1000)
+
+  const drawn = JSON.stringify(await ui.drawn())
+  expect(drawn).not.toContain(english)
+  expect(drawn.split('SnapCam для Mac, iPhone или камера недоступны.').length - 1).toBe(1)
   await ui.unmount()
 })

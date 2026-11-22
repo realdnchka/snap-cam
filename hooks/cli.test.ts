@@ -25,15 +25,35 @@ test('missing stages are skipped', () => {
 })
 
 test('only a known model reason names Apple Intelligence, alone and in Russian', () => {
-  expect(paneFailure({ exitCode: CLI_UNAVAILABLE, reason: "SnapCam isn't running." })).toBe(
-    'SnapCam для Mac, iPhone или камера недоступны: SnapCam не запущен.')
+  expect(paneFailure({ exitCode: CLI_UNAVAILABLE, reason: "SnapCam isn't running." })).toBe('SnapCam не запущен.')
   expect(
     paneFailure({ exitCode: CLI_UNAVAILABLE, reason: 'Apple Intelligence is off. Turn it on in System Settings > Apple Intelligence & Siri, then try again.' }),
   ).toBe('Apple Intelligence выключен. Включи его в Системных настройках › Apple Intelligence и Siri и попробуй снова.')
   expect(paneFailure({ exitCode: CLI_UNAVAILABLE, reason: "SnapCam didn't start: SnapCam isn't running." })).toBe(
-    'SnapCam для Mac, iPhone или камера недоступны: SnapCam не запустился: SnapCam не запущен.')
-  expect(paneFailure({ exitCode: CLI_UNAVAILABLE, reason: 'Model not ready.' })).toBe(
-    'SnapCam для Mac, iPhone или камера недоступны: Model not ready.')
+    'SnapCam не запустился: SnapCam не запущен.')
+})
+
+// Each used to read as a Russian prefix plus the CLI's English reason.
+test('a pane failure is one Russian message, never with English the mod cannot translate', () => {
+  const cases: [number, string, string][] = [
+    [CLI_UNAVAILABLE, 'Model not ready.', 'SnapCam для Mac, iPhone или камера недоступны.'],
+    [CLI_UNAVAILABLE, 'No paired iPhone nearby. Open SnapCam on the iPhone.', 'SnapCam для Mac, iPhone или камера недоступны.'],
+    [75, 'The paired iPhone did not connect.', 'iPhone не подключился вовремя.'],
+    [64, 'unknown option --source', 'Неверные аргументы — обнови SnapCam для Mac.'],
+    [1, 'snapcam-cli exit 1', 'Камера или приложение SnapCam сообщили об ошибке.'],
+    [1, '', 'Камера или приложение SnapCam сообщили об ошибке.'],
+    [CLI_UNAVAILABLE, "Couldn't open SnapCam.app: The application cannot be opened.", 'Не удалось открыть SnapCam.app.'],
+    [CLI_UNAVAILABLE, "SnapCam didn't start: launchd said no", 'SnapCam не запустился.'],
+    [1, 'The on-device model failed: GenerationError -1', 'Модель на Mac не справилась.'],
+    [1, 'Timed out. Is the camera still on?', 'Камера не ответила вовремя. Она ещё включена?'],
+    [CLI_UNAVAILABLE, 'iPhone «Тест» не отвечает.', 'iPhone «Тест» не отвечает.'],
+  ]
+  for (const [exitCode, reason, said] of cases) {
+    const text = paneFailure({ exitCode, reason })
+    expect(text).toBe(said)
+    // Only product names in Latin letters.
+    expect(/\b(?!SnapCam|iPhone|Mac|app)[A-Za-z]{3,}\b/.test(text.replace('SnapCam.app', ''))).toBe(false)
+  }
 })
 
 test('model and OCR answers that explain themselves drop the exit prefix', () => {
