@@ -276,7 +276,7 @@ export const contract = {
         "status" : "available"
       },
       "liveVideo" : {
-        "detail" : "iPhone live view: latency, fps, Turbo / Enhance / Custom switch; Settings: frame rate, enhance, Reset to Defaults; Mac camera preview",
+        "detail" : "iPhone live view: latency, fps, Turbo / Enhance / Custom switch; inspector: frame rate, enhance, Reset to Defaults; Mac camera preview",
         "status" : "available"
       },
       "pairing" : {
