@@ -125,7 +125,7 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   (also `ui.close`). Lease (0.11.5): desktop's tab ✕ sends no `ui.close` and the engine keeps
   listing the pane shown, so with a redrawing surface (not terminal-only) every pane render
   stamps `renderedAt`; after 6 s without one the tick bumps the `paneProbe` atom (which the
-  render reads), and 3 s more without a render stops the stream until the next render.
+  render reads), and 3 s more without a render stops the stream; probes go on every 6 s and the next render restarts it.
   The CLI (snapcam-app `fix/device-10`) leaves `live` when reparented and prints
   `{"waiting":true}` on quiet failed polls, so a stop never waits on a silent child.
   Periodic polls (`inbox`, `state`, `recent`, notes) write atoms only when the value changed,

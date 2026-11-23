@@ -338,11 +338,14 @@ const CHIP_CACHE = 64
 
 export async function chipSvg($: EngineInterface, name: string, side = THUMB): Promise<string | null> {
   const key = `${side}:${name}`
-  const cached = chips.get(key)
-  if (cached) return cached
   const p = await paths($)
   const file = `${p.thumbs}/${name}`
-  if (!(await $.fs.exists(file))) return null
+  if (!(await $.fs.exists(file))) {
+    chips.delete(key)
+    return null
+  }
+  const cached = chips.get(key)
+  if (cached) return cached
   const { base64 } = await $.fs.read(file, { as: 'bytes' })
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${side}" height="${side}" viewBox="0 0 ${side} ${side}">` +

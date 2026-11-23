@@ -126,19 +126,22 @@ const LEASE_MS = 6000
 const PROBE_WAIT_MS = 3000
 let renderedAt = 0
 let probeAt: number | null = null
+// No render answered a probe: the stream stays off until one does.
+let lost = false
 
-// False once no surface drew the pane since a probe; a render renews it.
+// False once no surface drew the pane since a probe; probes go on, and a render renews it.
 async function leaseHeld($: EngineInterface, now: number): Promise<boolean> {
   if (now - renderedAt <= LEASE_MS) {
     probeAt = null
+    lost = false
     return true
   }
-  if (probeAt === null) {
+  if (probeAt === null || (lost && now - probeAt >= LEASE_MS)) {
     probeAt = now
     await update($, paneProbe, n => n + 1)
-    return true
   }
-  return now - probeAt < PROBE_WAIT_MS
+  if (now - probeAt >= PROBE_WAIT_MS) lost = true
+  return !lost
 }
 
 // Stops the child; resolves once it is gone or after KILL_WAIT_MS.
@@ -525,6 +528,7 @@ export async function openLive($: EngineInterface): Promise<boolean> {
   closed = false
   renderedAt = await $.clock.now()
   probeAt = null
+  lost = false
   const opened = await $.ui.open({ id: LIVE_PANE, title: TITLE })
   infoAt = null
   launchNext = true
