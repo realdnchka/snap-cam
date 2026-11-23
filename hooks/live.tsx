@@ -3,7 +3,7 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { CameraInfo, Framing, InboxItem, LiveFrame, PaneTab, RecentItem, SnapMode } from '../types'
 import {
-  CLI_USAGE, INSTALL_RU, READ_TIMEOUT_S, SHORT, SIDE, SOURCES, baseName, chipSvg, findCli, makeThumb, paneFailure,
+  CLI_USAGE, INSTALL, READ_TIMEOUT_S, SHORT, SIDE, SOURCES, baseName, chipSvg, findCli, makeThumb, paneFailure,
   paneOcrText, parseJson, paths, recentName, runCli, snapToTray, times,
 } from './cli'
 import type { PhotoText } from './cli'
@@ -141,7 +141,7 @@ async function startLive($: EngineInterface, mode: SnapMode, id: string, surface
   const p = await paths($)
   const cli = await findCli($, p)
   if (!cli) {
-    await ended($, 'SnapCam для Mac не установлен')
+    await ended($, 'SnapCam for Mac is not installed')
     return
   }
   if (gen !== startGen) return
@@ -181,13 +181,13 @@ async function startLive($: EngineInterface, mode: SnapMode, id: string, surface
         const { code } = await stream.result
         const last = (stderr.trim().split('\n').pop() ?? '').replace(/^snapcam-cli: /, '')
         const why =
-          code === CLI_USAGE ? 'Обнови SnapCam для Mac: этот snapcam-cli не умеет live'
+          code === CLI_USAGE ? 'Update SnapCam for Mac: this snapcam-cli has no live video.'
           : paneFailure({ exitCode: code ?? 1, reason: last })
         await ended($, why)
       }
     } catch (error) {
       // Also an unload: $ may be gone, so nothing may throw from here.
-      if (!me.stopped) await ended($, 'Не удалось запустить видео SnapCam.').catch(() => {})
+      if (!me.stopped) await ended($, "Couldn't start SnapCam live video.").catch(() => {})
     } finally {
       if (run === me) run = null
     }
@@ -406,7 +406,7 @@ async function toggleRecent($: EngineInterface, item: RecentItem): Promise<void>
   await $.process.run(['mkdir', '-p', p.snaps])
   await $.process.run(['sips', '-s', 'format', 'jpeg', '-Z', String(SIDE), item.original, '--out', dest])
   if (!(await $.fs.exists(dest))) {
-    await setNote($, 'control', `Не удалось прочитать ${baseName(item.original)}`)
+    await setNote($, 'control', `Couldn't read ${baseName(item.original)}`)
     return
   }
   await update($, pending, list => (list.includes(dest) ? list : [...list, dest]))
@@ -451,10 +451,10 @@ async function readPhoto($: EngineInterface, what: 'read' | 'ask'): Promise<void
     const p = await paths($)
     const cli = await findCli($, p)
     if (!cli) {
-      await setNote($, 'read', INSTALL_RU)
+      await setNote($, 'read', INSTALL)
       return
     }
-    await update($, paneText, () => (what === 'read' ? 'Читаю…' : 'Думаю…'))
+    await update($, paneText, () => (what === 'read' ? 'Reading…' : 'Thinking…'))
     textFor = await attachedKey($)
     const target = await readTarget($)
     const asked = question.trim()
@@ -472,11 +472,11 @@ async function readPhoto($: EngineInterface, what: 'read' | 'ask'): Promise<void
     } else {
       const json = parseJson<{ answer: string; photos: string[] }>(res.stdout)
       const names = (json.photos ?? []).map(baseName).join(', ')
-      await update($, paneText, () => `${json.answer ?? ''}${names ? `\n\nФото: ${names}` : ''}`)
+      await update($, paneText, () => `${json.answer ?? ''}${names ? `\n\nPhoto: ${names}` : ''}`)
     }
   } catch {
     await update($, paneText, () => '')
-    await setNote($, 'read', 'Не удалось прочитать фото.')
+    await setNote($, 'read', "Couldn't read the photo.")
   } finally {
     reading = false
   }
@@ -519,7 +519,7 @@ async function videoSvg($: EngineInterface, frame: LiveFrame): Promise<string | 
   return lastSvg
 }
 
-// The state's name for an external camera, else the short Russian one.
+// The state's name for an external camera, else the short one.
 function sourceName(info: CameraInfo | null, id: string): string {
   return info?.sources.find(s => s.id === id && id)?.name ?? SHORT.external
 }
@@ -531,8 +531,8 @@ function framingLine(frame: LiveFrame, info: CameraInfo | null, mode: SnapMode, 
   const parts = [name]
   if (mode === 'iphone' && f) {
     parts.push(`${LENS_LABEL[f.lens ?? ''] ?? f.lens ?? ''} ${times(frame.zoom ?? f.zoom)}`.trim())
-    parts.push(`вспышка ${f.flash}`)
-    if (f.light > 0) parts.push(`свет ${Math.round(f.light * 100)}%`)
+    parts.push(`flash ${f.flash}`)
+    if (f.light > 0) parts.push(`light ${Math.round(f.light * 100)}%`)
     if (f.exposure !== 0) parts.push(`${f.exposure > 0 ? '+' : ''}${f.exposure} EV`)
   }
 
@@ -586,10 +586,10 @@ export function registerLive(on: On): void {
     }
     const tabs = (
       <Box key="tabs" flexDirection="row" gap={1}>
-        <Button key="tab:camera" label="🎥 Камера" variant={tab === 'camera' ? 'primary' : undefined} onPress={setTab('camera')} />
-        <Button key="tab:gallery" label="🖼 Галерея" variant={tab === 'gallery' ? 'primary' : undefined} onPress={setTab('gallery')} />
+        <Button key="tab:camera" label="🎥 Camera" variant={tab === 'camera' ? 'primary' : undefined} onPress={setTab('camera')} />
+        <Button key="tab:gallery" label="🖼 Gallery" variant={tab === 'gallery' ? 'primary' : undefined} onPress={setTab('gallery')} />
         {/* The desktop tab mark may not close a plugin pane. */}
-        {e.surface === 'desktop' && <Button key="close" label="✕ Закрыть" plain dimColor onPress={() => void $.ui.close({ id: LIVE_PANE })} />}
+        {e.surface === 'desktop' && <Button key="close" label="✕ Close" plain dimColor onPress={() => void $.ui.close({ id: LIVE_PANE })} />}
       </Box>
     )
     const noteRow = note ? <Text color="red">{note}</Text> : null
@@ -609,14 +609,14 @@ export function registerLive(on: On): void {
 
       const readRow = (
         <Box key="read-row" flexDirection="row" gap={1} alignItems="center">
-          <Button key="read" label="📝 Текст" onPress={() => readPhoto($, 'read')} />
-          <Button key="ask" label="✨ Спросить" onPress={() => readPhoto($, 'ask')} />
+          <Button key="read" label="📝 Text" onPress={() => readPhoto($, 'read')} />
+          <Button key="ask" label="✨ Ask" onPress={() => readPhoto($, 'ask')} />
           {e.surface !== 'mobile' && (
             <Input
               key="question"
-              placeholder="Вопрос (пусто — краткое описание)"
+              placeholder="Question (empty for a summary)"
               value={question}
-              submitLabel="Спросить"
+              submitLabel="Ask"
               onInput={value => {
                 question = value
               }}
@@ -638,10 +638,10 @@ export function registerLive(on: On): void {
       return (
         <Box flexDirection="column" gap={1}>
           {tabs}
-          <Text dimColor>Нажми на фото, чтобы прикрепить к следующему сообщению (✓ — прикреплено).</Text>
-          <Text bold>Входящие с iPhone</Text>
+          <Text dimColor>Click a photo to attach it to your next message (✓ attached).</Text>
+          <Text bold>Inbox from iPhone</Text>
           {listed.length === 0 ? (
-            <Text dimColor>Пусто</Text>
+            <Text dimColor>Empty</Text>
           ) : (
             <Box flexDirection="row" gap={1} flexWrap="wrap">
               {listed.map((item, i) =>
@@ -649,9 +649,9 @@ export function registerLive(on: On): void {
               )}
             </Box>
           )}
-          <Text bold>Недавние</Text>
+          <Text bold>Recent</Text>
           {recent.length === 0 ? (
-            <Text dimColor>Пусто</Text>
+            <Text dimColor>Empty</Text>
           ) : (
             <Box flexDirection="row" gap={1} flexWrap="wrap">
               {recent.map((item, i) =>
@@ -661,8 +661,8 @@ export function registerLive(on: On): void {
               )}
             </Box>
           )}
-          <Button key="gallery:refresh" label="↻ Обновить" plain dimColor onPress={() => void refreshGallery($)} />
-          <Text dimColor>Текст и вопросы — по самому новому прикреплённому фото, иначе по последнему снимку.</Text>
+          <Button key="gallery:refresh" label="↻ Refresh" plain dimColor onPress={() => void refreshGallery($)} />
+          <Text dimColor>Text and Ask use the newest attached photo, else the last shot.</Text>
           {readRow}
           {text ? <Box key="read-text"><Text>{text}</Text></Box> : null}
           {noteRow}
@@ -693,15 +693,15 @@ export function registerLive(on: On): void {
           : frame.png
             ? { file: frame.png, format: 'png' as const, generation: frame.seq }
             : null
-      video = source ? <Image key="video" source={source} columns={columns} rows={rows} alt="Живое видео SnapCam" /> : null
+      video = source ? <Image key="video" source={source} columns={columns} rows={rows} alt="SnapCam live video" /> : null
     } else if (Svg) {
       const svg = await videoSvg($, frame)
       // A fixed box: the surface needn't measure each new frame's markup.
       const width = Math.min(frame.width ?? LIVE_SIDE, e.props.bodyColumns * CELL_PX)
       const height = Math.round((width * (frame.height ?? 3)) / (frame.width ?? 4))
-      video = svg ? <Svg source={svg} alt="Живое видео SnapCam" width={width} height={height} /> : null
+      video = svg ? <Svg source={svg} alt="SnapCam live video" width={width} height={height} /> : null
     }
-    const waiting = frame.error ?? (frame.seq === 0 ? 'Подключаюсь к камере…' : 'Кадр слишком большой')
+    const waiting = frame.error ?? (frame.seq === 0 ? 'Connecting to the camera…' : 'Frame too large')
     // Errors show over a frozen last frame too.
     const problem = frame.error && video ? <Text color="red">⚠ {frame.error}</Text> : null
     const status = <Text dimColor>{framingLine(frame, info, mode, id)}</Text>
@@ -739,13 +739,13 @@ export function registerLive(on: On): void {
     const lightControls = info?.hasLight ? (
       <Box key="flash" flexDirection="row" gap={1}>
         <Button key="light-" label="💡−" onPress={lightAt(step - 1)} />
-        <Button key="light" label={level > 0 ? `Свет ${Math.round(level * 100)}%` : 'Выкл'} plain dimColor={level === 0} onPress={lightAt(0)} />
+        <Button key="light" label={level > 0 ? `Light ${Math.round(level * 100)}%` : 'Off'} plain dimColor={level === 0} onPress={lightAt(0)} />
         <Button key="light+" label="💡+" onPress={lightAt(step + 1)} />
       </Box>
     ) : info?.flashModes.includes('on') ? (
       <Button
         key="flash"
-        label={f?.flash === 'on' ? '⚡ Вспышка вкл' : '⚡ Вспышка выкл'}
+        label={f?.flash === 'on' ? '⚡ Flash on' : '⚡ Flash off'}
         variant={f?.flash === 'on' ? 'primary' : undefined}
         onPress={() => control($, ['flash', f?.flash === 'on' ? 'off' : 'on'])}
       />
@@ -783,7 +783,7 @@ export function registerLive(on: On): void {
         </Box>
         <Box key="status">{status}</Box>
         <Box key="shoot-row" flexDirection="row" gap={1}>
-          <Button key="shoot" label="📸 Снять" variant="primary" onPress={shoot} />
+          <Button key="shoot" label="📸 Shoot" variant="primary" onPress={shoot} />
         </Box>
         {sources.length > 1 && (
           <Box key="camera" flexDirection="row" gap={1} flexWrap="wrap">

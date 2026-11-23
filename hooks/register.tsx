@@ -152,13 +152,13 @@ async function takeTray($: EngineInterface, items: readonly InboxItem[]): Promis
   await $.process.run(['mkdir', '-p', p.snaps, p.staging])
   const cli = await findCli($, p)
   if (!cli) {
-    $.ui.toast('SnapCam: фото с iPhone остались в лотке — приложение SnapCam для Mac не найдено')
+    $.ui.toast("SnapCam: iPhone photos stay in the tray. SnapCam for Mac wasn't found.")
     return []
   }
   const args = ['inbox', '--take', ...ids.flatMap(id => ['--id', id])]
   const run = await runCli($, cli, [...args, '--preview-dir', p.staging, '--preview-size', String(SIDE), '--json', '--no-launch'], 60)
   if (run.exitCode !== 0) {
-    $.ui.toast(`SnapCam: фото с iPhone не забраны из входящих и остались в лотке. ${paneFailure(run)}`)
+    $.ui.toast(`SnapCam: couldn't take iPhone photos from the inbox; they stay in the tray. ${paneFailure(run)}`)
     return []
   }
   await forget($, ids)
@@ -607,15 +607,15 @@ export const register: Register = on => {
     if (arg === 'pane' || arg === 'live') {
       const placed = await openLive($)
 
-      return { text: placed ? 'Панель SnapCam открыта' : 'Панель SnapCam ждёт места: расширь окно', isTextDisplayOnly: true }
+      return { text: placed ? 'SnapCam pane opened' : 'SnapCam pane needs room: widen the window', isTextDisplayOnly: true }
     }
     if (arg === 'caps' || arg === 'status' || arg === 'pair' || arg === 'list') {
       const cli = await findCli($, await paths($))
-      if (!cli) return { text: 'SnapCam для Mac не установлен: собери его из snapcam-app скриптом scripts/install-mac.sh' }
+      if (!cli) return { text: INSTALL }
       // `list` = the sources in `state`.
       const run = await $.process.run([cli, arg === 'list' ? 'state' : arg], { timeoutMs: 60_000 })
 
-      return { text: (run.stdout + run.stderr).trim() || `snapcam-cli: код ${run.exitCode}` }
+      return { text: (run.stdout + run.stderr).trim() || `snapcam-cli: exit ${run.exitCode}` }
     }
     const mode = CAMERAS.find(c => c === arg) ?? 'iphone'
 
@@ -701,10 +701,10 @@ export const register: Register = on => {
     // The terminal's table has no Svg: the name, without building the picture.
     const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : null
     const name = await read($, viewing)
-    if (!name) return <Text dimColor>Фото не найдено</Text>
+    if (!name) return <Text dimColor>Photo not found</Text>
     if (!Svg) return <Text dimColor>{name}</Text>
     const svg = await previewSvg($, name)
-    if (!svg) return <Text dimColor>Фото не найдено: {name}</Text>
+    if (!svg) return <Text dimColor>Photo not found: {name}</Text>
 
     return (
       <Box flexDirection="column" gap={1}>
@@ -742,7 +742,7 @@ export const register: Register = on => {
                       <Svg source={svg} alt={item.name} width={TILE} height={TILE} />
                       {/* Revealed on hover: a veil with a centred ⌕ that opens the preview. */}
                       <Box position="absolute" top={0} left={0} right={0} bottom={0} display="none" hover={{ display: 'flex' }}>
-                        <Svg source={VEIL} alt="Открыть фото" width={TILE} height={TILE} />
+                        <Svg source={VEIL} alt="Open photo" width={TILE} height={TILE} />
                         <Box position="absolute" top={0} left={0} right={0} bottom={0} justifyContent="center" alignItems="center">
                           <Button key={`open:${item.key}`} label="⌕" plain onPress={open} />
                         </Box>
@@ -751,7 +751,7 @@ export const register: Register = on => {
                   ) : (
                     [
                       <Text key="name">{item.id ? '📱' : '📷'} {item.name}</Text>,
-                      <Button key={`open:${item.key}`} label="открыть" plain dimColor onPress={open} />,
+                      <Button key={`open:${item.key}`} label="open" plain dimColor onPress={open} />,
                     ]
                   )}
                   <Button key={`x:${item.key}`} label="✕" plain onPress={() => void drop(item)} />
@@ -762,7 +762,7 @@ export const register: Register = on => {
         )}
         <Box flexDirection="row" gap={1} alignItems="center">
         {now !== '' ? (
-          <Text dimColor>SnapCam: снимает {SHORT[now as SnapMode] ?? 'камера'}…</Text>
+          <Text dimColor>SnapCam: shooting with {SHORT[now as SnapMode] ?? 'the camera'}…</Text>
         ) : (
           [
             ...MODES.map(m => (
@@ -773,7 +773,7 @@ export const register: Register = on => {
               label="⚡ Fast Capture"
               onPress={() => void lastMode($).then(mode => snapToTray($, mode, '0'))}
             />,
-            <Button key={LIVE_PANE} label="🎥 Панель" onPress={() => void openLive($)} />,
+            <Button key={LIVE_PANE} label="🎥 Pane" onPress={() => void openLive($)} />,
           ]
         )}
         </Box>

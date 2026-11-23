@@ -118,13 +118,13 @@ test('the light stepper goes by quarters; its middle and zero turn light and fla
   await clock.advance(1000)
 
   expect(await ui.find({ type: 'Select' })).toBeUndefined()
-  expect((await ui.find({ key: 'light' }))?.props.label).toBe('Выкл')
+  expect((await ui.find({ key: 'light' }))?.props.label).toBe('Off')
   await ui.press({ key: 'light+' })
   await ui.press({ key: 'light+' })
-  expect((await ui.find({ key: 'light' }))?.props.label).toBe('Свет 50%')
+  expect((await ui.find({ key: 'light' }))?.props.label).toBe('Light 50%')
   await ui.press({ key: 'light-' })
   await ui.press({ key: 'light' })
-  expect((await ui.find({ key: 'light' }))?.props.label).toBe('Выкл')
+  expect((await ui.find({ key: 'light' }))?.props.label).toBe('Off')
   await ui.press({ key: 'light+' })
   await ui.press({ key: 'light-' })
 
@@ -149,9 +149,9 @@ test('a phone with flash and no light gets an on/off flash toggle', async ($, on
   await clock.advance(1000)
 
   expect(await ui.find({ key: 'light' })).toBeUndefined()
-  expect((await ui.find({ key: 'flash' }))?.props.label).toBe('⚡ Вспышка выкл')
+  expect((await ui.find({ key: 'flash' }))?.props.label).toBe('⚡ Flash off')
   await ui.press({ key: 'flash' })
-  expect((await ui.find({ key: 'flash' }))?.props.label).toBe('⚡ Вспышка вкл')
+  expect((await ui.find({ key: 'flash' }))?.props.label).toBe('⚡ Flash on')
   await ui.press({ key: 'flash' })
   expect(fake.calls.filter(args => args[0] === 'flash')).toEqual([['flash', 'on', '--json'], ['flash', 'off', '--json']])
   await ui.unmount()
@@ -221,7 +221,7 @@ test('an old snapcam-cli without live shows why and is retried only after a paus
   await clock.advance(1000)
 
   expect(fake.spawns).toHaveLength(1)
-  expect((await ui.find({ key: 'live' }))?.text).toContain('Обнови SnapCam для Mac')
+  expect((await ui.find({ key: 'live' }))?.text).toContain('Update SnapCam for Mac')
   await clock.advance(3000)
   expect(fake.spawns).toHaveLength(1)
   await clock.advance(3000)
@@ -247,7 +247,7 @@ test('an error after frames shows over the frozen frame', async ($, on) => {
   await clock.advance(1000)
 
   expect(await ui.find({ type: 'Svg' })).toBeDefined()
-  expect((await ui.find({ key: 'live' }))?.text).toContain('Камера не ответила вовремя. Она ещё включена?')
+  expect((await ui.find({ key: 'live' }))?.text).toContain('Timed out. Is the camera still on?')
   await ui.unmount()
 })
 
@@ -326,10 +326,10 @@ test('a failed state read shows why, and the next good one clears it without lau
   const fake = fakeMac(on, () => true, { stateFails: 2 })
   const ui = await openPane($)
   await clock.advance(1000)
-  expect((await ui.drawn()) && (await ui.find({ type: 'Text', text: 'SnapCam не запущен.' }))).toBeDefined()
+  expect((await ui.drawn()) && (await ui.find({ type: 'Text', text: "SnapCam isn't running." }))).toBeDefined()
 
   await clock.advance(11_000)
-  expect(await ui.find({ type: 'Text', text: /SnapCam не запущен/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /SnapCam isn't running/ })).toBeUndefined()
   const states = fake.calls.filter(args => args[0] === 'state')
   expect(states[0]).not.toContain('--no-launch')
   expect(states.at(-1)).toContain('--no-launch')
@@ -348,13 +348,13 @@ test('the band button opens the pane and starts the stream', async ($, on) => {
   expect(fake.spawns).toHaveLength(1)
 })
 
-test('an app message the pane has no translation for passes through', async ($, on) => {
+test('an app message passes through as it is', async ($, on) => {
   const clock = mock.clock(on)
-  fakeMac(on, () => true, { stateFails: 2, stateError: 'snapcam-cli: iPhone «Тест» не отвечает.' })
+  fakeMac(on, () => true, { stateFails: 2, stateError: 'snapcam-cli: iPhone “Test” is not answering.' })
   const ui = await openPane($)
   await clock.advance(1000)
 
-  expect(await ui.find({ type: 'Text', text: /iPhone «Тест» не отвечает\./ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /iPhone “Test” is not answering\./ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -531,13 +531,13 @@ test('a question asks about the attached photo', async ($, on) => {
   await clock.advance(1000)
   await ui.press({ key: `recent:${RECENT}` })
 
-  await ui.input({ key: 'question', text: 'Что купили?' })
-  expect(fake.calls.find(args => args[0] === 'ask')).toEqual(['ask', ORIGINAL, '--json', '--question', 'Что купили?'])
+  await ui.input({ key: 'question', text: 'What did we buy?' })
+  expect(fake.calls.find(args => args[0] === 'ask')).toEqual(['ask', ORIGINAL, '--json', '--question', 'What did we buy?'])
   expect((await ui.find({ key: 'read-text' }))?.text).toContain('A grocery receipt.')
   await ui.unmount()
 })
 
-test('a failed question says why in Russian', async ($, on) => {
+test('a failed question says why, once', async ($, on) => {
   const clock = mock.clock(on)
   fakeMac(on, () => true, { askFails: true })
   const ui = await openPane($)
@@ -545,9 +545,8 @@ test('a failed question says why in Russian', async ($, on) => {
   await clock.advance(1000)
 
   await ui.press({ key: 'ask' })
-  const said = 'Apple Intelligence выключен. Включи его в Системных настройках › Apple Intelligence и Siri и попробуй снова.'
-  expect((await ui.find({ type: 'Text', text: /Apple Intelligence/ }))?.text).toBe(said)
-  expect(JSON.stringify(await ui.drawn())).not.toContain(MODEL_OFF)
+  expect((await ui.find({ type: 'Text', text: /Apple Intelligence/ }))?.text).toBe(MODEL_OFF)
+  expect(JSON.stringify(await ui.drawn()).split(MODEL_OFF).length - 1).toBe(1)
   expect(await ui.find({ key: 'read-text' })).toBeUndefined()
   await ui.unmount()
 })
@@ -591,17 +590,17 @@ test('a live error the pane has no words for is told by its exit code', async ($
   const ui = await openPane($)
   await clock.advance(1000)
 
-  expect((await ui.find({ key: 'live' }))?.text).toContain('iPhone не подключился вовремя.')
+  expect((await ui.find({ key: 'live' }))?.text).toContain("The iPhone didn't connect in time.")
   await ui.unmount()
 })
 
-test('a live child that ends with a reason on stderr shows it in Russian', async ($, on) => {
+test('a live child that ends with a reason on stderr shows it', async ($, on) => {
   const clock = mock.clock(on)
   fakeMac(on, () => true, { exit: { code: 69, stderr: "snapcam-cli: SnapCam isn't running." } })
   const ui = await openPane($)
   await clock.advance(1000)
 
-  expect((await ui.find({ key: 'live' }))?.text).toContain('SnapCam не запущен.')
+  expect((await ui.find({ key: 'live' }))?.text).toContain("SnapCam isn't running.")
   await ui.unmount()
 })
 
@@ -614,7 +613,7 @@ test('the gallery reads one photo at a time', async ($, on) => {
 
   await Promise.all([ui.press({ key: 'read' }), ui.press({ key: 'read' })])
   expect(fake.calls.filter(args => args[0] === 'ocr')).toHaveLength(1)
-  expect((await ui.find({ key: 'read-text' }))?.text).toBe('Фото: SnapCam 2026-11-22 at 10.00.01.heic\nHello from the receipt')
+  expect((await ui.find({ key: 'read-text' }))?.text).toBe('Photo: SnapCam 2026-11-22 at 10.00.01.heic\nHello from the receipt')
   await ui.unmount()
 })
 
@@ -658,7 +657,7 @@ test('on the terminal the band and the preview pane draw no Svg', async ($, on) 
   const band = await $.ui.mount({ plugin: 'snap-cam', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false } } as never)
   expect(await band.find({ type: 'Svg' })).toBeUndefined()
   const open = (await band.findAll({ type: 'Button' })).find(button => String(button.key).startsWith('open:'))
-  expect(open?.props.label).toBe('открыть')
+  expect(open?.props.label).toBe('open')
   await band.press({ key: String(open?.key) })
   await band.unmount()
 
@@ -687,34 +686,32 @@ test('a fresh shot is read before an older attached gallery photo', async ($, on
   await ui.unmount()
 })
 
-test('without SnapCam for Mac the shot and the read say so in Russian', async ($, on) => {
+test('without SnapCam for Mac the shot and the read say so', async ($, on) => {
   const clock = mock.clock(on)
   const fake = fakeMac(on, () => true, { noCli: true })
   const ui = await openPane($)
   await clock.advance(1000)
   await ui.press({ key: 'shoot' })
-  const shot = await ui.find({ type: 'Text', text: /не установлен: собери/ })
-  expect(shot?.text).toBe('SnapCam: SnapCam для Mac не установлен: собери его в snapcam-app скриптом scripts/install-mac.sh')
+  const shot = await ui.find({ type: 'Text', text: /not installed: build/ })
+  expect(shot?.text).toBe('SnapCam: SnapCam for Mac is not installed: build it from snapcam-app with scripts/install-mac.sh')
 
   await ui.press({ key: 'tab:gallery' })
   await clock.advance(1000)
   await ui.press({ key: 'read' })
-  expect((await ui.find({ type: 'Text', text: /не установлен/ }))?.text).toBe('SnapCam для Mac не установлен: собери его в snapcam-app скриптом scripts/install-mac.sh')
+  expect((await ui.find({ type: 'Text', text: /not installed/ }))?.text).toBe('SnapCam for Mac is not installed: build it from snapcam-app with scripts/install-mac.sh')
   expect(fake.calls).toHaveLength(0)
-  expect(JSON.stringify(await ui.drawn())).not.toContain('is not installed')
   await ui.unmount()
 })
 
-test('a stream error and a failed state read show one Russian message, not both', async ($, on) => {
+test('a stream error and a failed state read show one message, not both', async ($, on) => {
   const clock = mock.clock(on)
-  const english = 'No paired iPhone nearby. Open SnapCam on the iPhone.'
-  fakeMac(on, () => true, { stateFails: 1, stateError: `snapcam-cli: ${english}`, tail: [{ error: english, exit: '69' }] })
+  const said = 'No paired iPhone nearby. Open SnapCam on the iPhone.'
+  fakeMac(on, () => true, { stateFails: 1, stateError: `snapcam-cli: ${said}`, tail: [{ error: said, exit: '69' }] })
   const ui = await openPane($)
   await clock.advance(1000)
 
   const drawn = JSON.stringify(await ui.drawn())
-  expect(drawn).not.toContain(english)
-  expect(drawn.split('SnapCam для Mac, iPhone или камера недоступны.').length - 1).toBe(1)
+  expect(drawn.split(said).length - 1).toBe(1)
   await ui.unmount()
 })
 
@@ -729,7 +726,7 @@ test('a band thumbnail reveals a ⌕ on hover, no 🔍, that opens the preview',
   const band = await $.ui.mount({ plugin: 'snap-cam', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false } } as never)
   const buttons = await band.findAll({ type: 'Button' })
   expect(buttons.some(button => /🔍/.test(String(button.props.label ?? '')))).toBe(false)
-  expect(buttons.some(button => button.props.label === 'открыть')).toBe(false)
+  expect(buttons.some(button => button.props.label === 'open')).toBe(false)
   const veil = (await band.findAll({ type: 'Box' })).find(box => box.props.display === 'none')
   // The kit drops `hover`; the veil is hidden until the surface reveals it.
   expect(veil).toBeDefined()

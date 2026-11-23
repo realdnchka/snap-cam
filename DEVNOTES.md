@@ -10,12 +10,12 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.11.3) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.11.4) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API); imports `cli.ts` (CLI helpers, `shoot`) and `live.tsx` (the pane) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}`; pane (0.10.0): `inbox, paneTab, paneCamera, paneSource, liveFrame, cameraInfo, gallery, paneNote, paneText` |
 | `README.md` | user-facing summary |
 | `hooks/pane.test.tsx`, `hooks/pane.fake.ts` | pane tests over a fake CLI with a fake `live` stream; `stubEngine` runs the test's own copy of `live.tsx` for the `ui.close` hook |
-| `hooks/cli.test.ts` | `timingNote`: stage order, skipped stages, countdown taken out of the CLI and mod totals; pane reasons in Russian; pane OCR text; `recentName` |
+| `hooks/cli.test.ts` | `timingNote`: stage order, skipped stages, countdown taken out of the CLI and mod totals; pane reasons; pane OCR text; `recentName` |
 | `tsconfig.json`, `scripts/typecheck.sh` | type check against the newest `claude-code.d.ts` on this Mac (see Install / update) |
 | `contract.ts` + `hooks/contract.test.ts` | generated camera contract (ADR 0003); `claude plugin test .` checks every ✅ MCP cell names registered tools and inputs, plus the inbox tray and `recent_photos` against a fake CLI, and that every ✅ Claude pane cell names keys the pane draws |
 
@@ -29,7 +29,7 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
 ## How it works
 
 - **Band above the prompt** (`ui.render AbovePrompt`, desktop/terminal/vscode, not mobile):
-  row 1 = tray of pending thumbnails (hover reveals a veil with a `⌕` Button that opens the preview pane; the terminal has `открыть`; ✕ drops it); row 2 =
+  row 1 = tray of pending thumbnails (hover reveals a veil with a `⌕` Button that opens the preview pane; the terminal has `open`; ✕ drops it); row 2 =
   `📷 iPhone`, `🗂 DeskView`, `⚡ Fast Capture` (last-used camera, auto-shot, delay 0).
 - **One capture path** (0.9.1, ADR 0004; `shoot`): `findCli` = `$SNAPCAM_CLI`, else
   `~/Applications/SnapCam.app/Contents/Helpers/snapcam-cli`, else `/Applications/…`; none →
@@ -49,7 +49,7 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   sources), ms, preview. Any non-zero exit → `deny` with `cliFailure` (69 app/phone/camera
   not reachable, 75 paired phone didn't connect, 64 usage — likely an older app, 1 camera
   error). No fallback: exit 69 for the phone no longer opens Continuity. Band `📷 iPhone` /
-  `🗂 DeskView` and Fast Capture shoot at once; busy shows «снимает <camera>…».
+  `🗂 DeskView` and Fast Capture shoot at once; busy shows “shooting with <camera>…”.
   `/snap caps|status|pair` print the CLI's output; `/snap list` prints `state`.
 - **Phone inbox in the tray** (0.8.8, ADR 0003 step 3; snapcam-app `feat/inbox`): photos shot
   with the iPhone app's own shutter land in the Mac app's inbox. In interactive sessions
@@ -118,7 +118,7 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
 - **`/snap iphone|continuity|desk|mac|pane|list|caps|status|pair`** (`live` = `pane`).
 
 - **SnapCam pane** (0.10.0, board card 7; `hooks/live.tsx`): `/snap pane` or the band's
-  `🎥 Панель` opens pane `snap-live`. A 1 s clock (`tick`, interactive sessions) checks
+  `🎥 Pane` opens pane `snap-live`. A 1 s clock (`tick`, interactive sessions) checks
   `$.ui.panes()`: while it is shown and placed with tab `camera`, one long-lived
   `$.process.spawn` of `snapcam-cli live --preview-dir <dir>/live --preview-size 640 --fps 5
   --json [--png] [--source S]` runs; anything else ends the loop, which kills the child
@@ -131,18 +131,18 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   chars); a terminal-only session blits the keyed `Image` and redraws only when the words
   change. Controls run `frame --lens|--zoom`, `flash`, `light`, `exposure` with `--json` and
   take the framing from the answer; `state --json` fills them on open and every 10 s, and
-  the stream's own lens/zoom win over it. `📸 Снять` is
+  the stream's own lens/zoom win over it. `📸 Shoot` is
   `snapToTray` (tray, no delay). Gallery tab (video paused): `inbox` atom (everything the
   poll lists) toggles `dismissed`; `recent 8 --json` (no previews; sips thumbs once per
   original, every 15 s while shown) toggles a sips 2400 px copy `recentName(original)` in
-  `pending`. `📝 Текст` (`read`) runs `ocr … --json`, `✨ Спросить` (`ask`, or Enter in the
+  `pending`. `📝 Text` (`read`) runs `ocr … --json`, `✨ Ask` (`ask`, or Enter in the
   `question` Input, not on mobile; empty summarizes) runs `ask … --json [--question Q]`, both on
-  the newest attached photo (a `📸 Снять`/band shot by its original from `shotOriginals` while
-  the gallery doesn't list it yet; then gallery, shot or «Входящие с iPhone» in the gallery's
+  the newest attached photo (a `📸 Shoot`/band shot by its original from `shotOriginals` while
+  the gallery doesn't list it yet; then gallery, shot or “Inbox from iPhone” in the gallery's
   newest-first order, then the inbox's) or else `--recent 1`, with `READ_TIMEOUT_S`; without
-  snapcam-cli both say «SnapCam для Mac не установлен» in the note; the answer goes to the
-  `paneText` atom under the buttons («Читаю…» / «Думаю…» while it runs, one at a time; OCR as
-  `Фото: <name>` + lines, no area tags), and hides once the attached set changes. Polls (`state` every 10 s while the camera tab shows, `recent`) pass
+  snapcam-cli both say `INSTALL` in the note; the answer goes to the
+  `paneText` atom under the buttons (“Reading…” / “Thinking…” while it runs, one at a time; OCR as
+  `Photo: <name>` + lines, no area tags), and hides once the attached set changes. Polls (`state` every 10 s while the camera tab shows, `recent`) pass
   `--no-launch`; only the first `state` after an open and the `live` child may start the app.
   Frames go to `live/<id per module load>/` (removed on close), so sessions don't share them;
   the first start per module load sweeps sibling folders untouched for 10 min (`find -mmin +10`),
@@ -163,10 +163,10 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   The camera buttons also offer every external camera `state` lists, by id (`--source <id>`,
   the state's name on the button and status line, `paneSource` atom; not in the MCP enums);
   `last-mode.txt` may say `external` and Fast Capture then shoots the first one.
-  Pane and band messages are one Russian message (`paneFailure`, 0.11.2): a translated or
-  app-localized (Cyrillic) reason alone, else a Russian sentence by exit code — English the mod
-  can't translate is dropped; the camera tab hides a failed `state` note while the stream shows
-  its error; `SHORT` names cameras in the band. MCP denies stay English (`cliFailure`, `SOURCES.title`).
+  Pane and band messages are one English message (`paneFailure`, 0.11.4; UI is English-only
+  since 2026-11-23): a reason worded as a sentence alone (a few terse ones reworded), else a
+  plain line by exit code — raw errors are dropped; the camera tab hides a failed `state` note while the stream shows
+  its error; `SHORT` names cameras in the band. MCP denies keep the exit prefix (`cliFailure`, `SOURCES.title`).
   Terminal: a file PNG source first; a refused blit switches to bytes (iTerm2), 10 refusals in a
   row stop blitting. The video's rows leave 10 for the controls. Errors show over the frozen
   frame; a pane note is cleared by the next success of whatever wrote it. Pane cells of ADR 0003 name control keys; `contract.test.ts` checks each against
@@ -256,6 +256,9 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 
 ## Open / unverified
+
+- 0.11.4 (branch `chore/english-only`): all pane, band, toast and `/snap` text in English;
+  Russian pane translations removed. Checked with `claude plugin test` only.
 
 - 0.11.3 (branch `feat/plugin-ui`): camera buttons, light stepper, band hover ⌕. Checked with
   `claude plugin test` only; the fixed video size and hover veil not seen in the desktop app yet.

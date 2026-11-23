@@ -18,12 +18,11 @@ export const SOURCES: Record<SnapMode, { source: string; title: string }> = {
 }
 // take_photo and peek cameras: the MCP enums.
 export const CAMERAS: SnapMode[] = ['iphone', 'continuity', 'desk', 'mac']
-// Russian short names for the pane and the band; SOURCES.title stays for the model.
+// Short names for the pane and the band; SOURCES.title is for the model.
 export const SHORT: Record<SnapMode, string> = {
-  iphone: 'iPhone', continuity: 'Continuity', desk: 'Desk View', mac: 'камера Mac', external: 'внешняя камера',
+  iphone: 'iPhone', continuity: 'Continuity', desk: 'Desk View', mac: 'Mac camera', external: 'external camera',
 }
 export const INSTALL = 'SnapCam for Mac is not installed: build it from snapcam-app with scripts/install-mac.sh'
-export const INSTALL_RU = 'SnapCam для Mac не установлен: собери его в snapcam-app скриптом scripts/install-mac.sh'
 
 export type Flash = 'off' | 'on' | 'auto'
 export type Lens = 'ultraWide' | 'wide' | 'telephoto'
@@ -165,102 +164,52 @@ export function cliFailure(run: Cli): string {
   return `${why}: ${run.reason}`
 }
 
-// Known CLI reasons, for the pane; the Mac app's own messages come localized.
+// Terse CLI reasons, reworded for the pane and the band.
 const REASONS: Record<string, string> = {
-  "SnapCam isn't running.": 'SnapCam не запущен.',
-  'Timed out. Is the camera still on?': 'Камера не ответила вовремя. Она ещё включена?',
-  'Timed out. Is SnapCam open on the iPhone?': 'Камера не ответила вовремя. SnapCam открыт на iPhone?',
-  'Timed out. Is the camera still connected?': 'Камера не ответила вовремя. Она ещё подключена?',
-  "SnapCam.app isn't installed.": 'SnapCam.app не установлен.',
-  'unexpected answer': 'SnapCam для Mac ответил неожиданно — обнови приложение.',
-  'SnapCam answered something else; update the app.': 'SnapCam для Mac ответил неожиданно — обнови приложение.',
-  "SnapCam didn't list its photos in time.": 'SnapCam не успел показать фото.',
-  "The camera didn't deliver the photo in time. It may still appear in SnapCam's history.":
-    'Камера не отдала фото вовремя. Оно ещё может появиться в истории SnapCam.',
+  'unexpected answer': 'SnapCam for Mac answered unexpectedly. Update the app.',
+  'SnapCam answered something else; update the app.': 'SnapCam for Mac answered unexpectedly. Update the app.',
 }
-
-// PhotoQuestion.Unavailable: why the Mac's model can't answer.
-const MODEL_OFF: Record<string, string> = {
-  "This Mac doesn't support Apple Intelligence, so questions about photos can't be answered. Reading text still works.":
-    'Этот Mac не поддерживает Apple Intelligence, поэтому на вопросы о фото ответить нельзя. Чтение текста работает.',
-  'Apple Intelligence is off. Turn it on in System Settings > Apple Intelligence & Siri, then try again.':
-    'Apple Intelligence выключен. Включи его в Системных настройках › Apple Intelligence и Siri и попробуй снова.',
-  "The Apple Intelligence model isn't ready yet (still downloading). Try again in a few minutes.":
-    'Модель Apple Intelligence ещё не готова (загружается). Попробуй через несколько минут.',
-  "The on-device Apple model isn't available right now. Try again later.":
-    'Модель Apple на этом Mac сейчас недоступна. Попробуй позже.',
-}
-
-// Reasons that explain themselves: shown alone, without the exit-code prefix.
-const SELF: Record<string, string> = {
-  ...MODEL_OFF,
-  "No text was found in the photo, so there's nothing to ask about.": 'На фото не найден текст — спрашивать не о чем.',
-  'The on-device model declined to answer this. Try rephrasing the question.':
-    'Модель на Mac отказалась отвечать. Попробуй спросить иначе.',
-  "The on-device model doesn't support this language yet. Ask in English.":
-    'Модель на Mac пока не знает этот язык. Спроси по-английски.',
-  'The text is too long for the on-device model even after trimming.':
-    'Текст слишком длинный для модели на Mac даже после сокращения.',
-}
-const SELF_PATTERNS: [RegExp, (m: RegExpExecArray) => string][] = [
-  [/^No photos in (.+)$/, m => `В папке ${m[1]} ещё нет фото.`],
-  [/^The on-device model failed: (.+)$/s, m => `Модель на Mac не справилась${inner(m[1])}`],
-]
 
 // Reasons that carry a path or a nested reason.
 const LANDING = /(?:The last photo is )?still on its way from the iPhone \((.+?)\)\. Try again shortly\./g
-const NESTED: [RegExp, (m: RegExpExecArray) => string][] = [
-  [/^SnapCam didn't start: (.+)$/s, m => `SnapCam не запустился${inner(m[1])}`],
-  [/^Couldn't open SnapCam\.app: (.+)$/s, m => `Не удалось открыть SnapCam.app${inner(m[1])}`],
+const NESTED: [RegExp, string][] = [
+  [/^SnapCam didn't start: (.+)$/s, "SnapCam didn't start"],
+  [/^Couldn't open SnapCam\.app: (.+)$/s, "Couldn't open SnapCam.app"],
+  [/^The on-device model failed: (.+)$/s, 'The on-device model failed'],
 ]
 
-const russian = (text: string) => /[А-Яа-яЁё]/.test(text)
-
-// A nested reason as `: <Russian>`, or a full stop when it has no Russian words.
-function inner(reason = ''): string {
-  const said = paneReason(reason).trim()
-
-  return russian(said) ? `: ${said}` : '.'
-}
-
-// A self-explaining reason in Russian, or null.
-function selfReason(reason: string): string | null {
-  const text = reason.trim()
-  const known = SELF[text]
-  if (known) return known
-  for (const [pattern, say] of SELF_PATTERNS) {
-    const m = pattern.exec(text)
-    if (m) return say(m)
-  }
-
-  return null
-}
+// Worded for people: words ending in a full stop. Raw errors are not.
+const sentence = (text: string) => /\s[\s\S]*[.?!]$/.test(text)
 
 export function paneReason(reason: string): string {
   const text = reason.trim()
-  const known = REASONS[text] ?? selfReason(text)
+  const known = REASONS[text]
   if (known) return known
-  for (const [pattern, say] of NESTED) {
+  const empty = /^No photos in (.+)$/.exec(text)
+  if (empty) return `No photos in ${empty[1]} yet.`
+  for (const [pattern, head] of NESTED) {
     const m = pattern.exec(text)
-    if (m) return say(m)
+    if (m) {
+      const said = paneReason(m[1] ?? '')
+      return sentence(said) ? `${head}: ${said}` : `${head}.`
+    }
   }
 
-  return reason.replace(LANDING, (_, path: string) => `Фото ещё едет с iPhone (${path.split('/').pop()}). Повтори чуть позже.`)
+  return reason.replace(LANDING, (_, path: string) => `The photo is still on its way from the iPhone (${path.split('/').pop()}). Try again shortly.`)
 }
 
-// cliFailure as one Russian message for the pane and the band; the model keeps English.
+// cliFailure for people: the reason alone, or a plain line when it is raw.
 export function paneFailure(run: Pick<Cli, 'exitCode' | 'reason'>): string {
   const said = paneReason(run.reason).trim()
-  // Translated or localized by the Mac app: alone. English we can't translate: dropped.
-  if (russian(said)) return said
+  if (sentence(said)) return said
 
-  return run.exitCode === CLI_UNAVAILABLE ? 'SnapCam для Mac, iPhone или камера недоступны.'
-    : run.exitCode === CLI_OFFLINE ? 'iPhone не подключился вовремя.'
-    : run.exitCode === CLI_USAGE ? 'Неверные аргументы — обнови SnapCam для Mac.'
-    : 'Камера или приложение SnapCam сообщили об ошибке.'
+  return run.exitCode === CLI_UNAVAILABLE ? "SnapCam for Mac, the iPhone or the camera isn't available."
+    : run.exitCode === CLI_OFFLINE ? "The iPhone didn't connect in time."
+    : run.exitCode === CLI_USAGE ? 'Unexpected arguments. Update SnapCam for Mac.'
+    : 'The camera or SnapCam reported an error.'
 }
 
-// A failed CLI run; the UI formats `run` in Russian.
+// A failed CLI run; the UI formats `run` with paneFailure.
 export class CliError extends Error {
   constructor(readonly run: Cli) {
     super(cliFailure(run))
@@ -286,7 +235,7 @@ export function paneOcrText(photos: PhotoText[]): string {
   return photos
     .map(photo => {
       const lines = (photo.paragraphs ?? []).map(p => p.text?.trim() ?? '').filter(Boolean)
-      return `Фото: ${baseName(photo.path ?? '?')}\n${lines.length ? lines.join('\n') : '(текст не найден)'}`
+      return `Photo: ${baseName(photo.path ?? '?')}\n${lines.length ? lines.join('\n') : '(no text found)'}`
     })
     .join('\n\n')
 }
@@ -355,7 +304,7 @@ export async function lastMode($: EngineInterface): Promise<SnapMode> {
 }
 
 export async function snapToTray($: EngineInterface, mode: SnapMode, delay = 'manual', source?: string): Promise<string> {
-  if ((await read($, busy)) !== '') return 'SnapCam уже снимает'
+  if ((await read($, busy)) !== '') return 'SnapCam is already taking a photo'
   await update($, busy, () => mode)
   try {
     const { path, original } = await shoot($, mode, { delay, source })
@@ -366,12 +315,12 @@ export async function snapToTray($: EngineInterface, mode: SnapMode, delay = 'ma
       ...(original ? { [path]: original } : {}),
     }))
 
-    return `Фото прикреплено: ${baseName(path)}`
+    return `Photo attached: ${baseName(path)}`
   } catch (error) {
     const why =
       error instanceof CliError ? paneFailure(error.run)
-      : error instanceof Error && error.message === INSTALL ? INSTALL_RU
-      : 'не удалось снять фото.'
+      : error instanceof Error && error.message === INSTALL ? INSTALL
+      : "Couldn't take the photo."
     const msg = `SnapCam: ${why}`
     $.ui.toast(msg)
 

@@ -46,7 +46,7 @@ export const contract = {
         "status" : "planned"
       },
       "shoot" : {
-        "detail" : "«Снять фото»",
+        "detail" : "“Take a SnapCam photo”",
         "status" : "planned"
       },
       "state" : {
