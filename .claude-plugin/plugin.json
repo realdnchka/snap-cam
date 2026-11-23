@@ -1,6 +1,6 @@
 {
   "name": "snap-cam",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "description": "One-click photo from the SnapCam iPhone app, Continuity Camera, Desk View or a Mac camera (via SnapCam for Mac) into the chat",
   "license": "MIT",
   "types": "./types/index.d.ts"

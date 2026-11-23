@@ -10,7 +10,7 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.11.2) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.11.3) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API); imports `cli.ts` (CLI helpers, `shoot`) and `live.tsx` (the pane) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}`; pane (0.10.0): `inbox, paneTab, paneCamera, paneSource, liveFrame, cameraInfo, gallery, paneNote, paneText` |
 | `README.md` | user-facing summary |
@@ -29,7 +29,7 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
 ## How it works
 
 - **Band above the prompt** (`ui.render AbovePrompt`, desktop/terminal/vscode, not mobile):
-  row 1 = tray of pending thumbnails (🔍 opens the preview pane, ✕ drops it); row 2 =
+  row 1 = tray of pending thumbnails (hover veils a thumbnail with an SVG magnifier; `открыть` opens the preview pane, ✕ drops it); row 2 =
   `📷 iPhone`, `🗂 DeskView`, `⚡ Fast Capture` (last-used camera, auto-shot, delay 0).
 - **One capture path** (0.9.1, ADR 0004; `shoot`): `findCli` = `$SNAPCAM_CLI`, else
   `~/Applications/SnapCam.app/Contents/Helpers/snapcam-cli`, else `/Applications/…`; none →
@@ -154,7 +154,9 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   The `ui.close` hook passes the close on at once and cleans up after (0.11.2): the engine lists a
   closing pane until the chain ends, and a held close let `tick` restart the stream. A module flag
   `closed` (set by the close, cleared only by `openLive`) keeps ticks from streaming a closed pane.
-  The camera cycle also offers every external camera `state` lists, by id (`--source <id>`,
+  Camera and light are `Select`s (0.11.3; a table without `Select` keeps the old cycle buttons): «Свет» =
+  Выкл (light off + flash off), Авто (light off + flash auto), Свет 25/50/100% (`light`).
+  The camera picker also offers every external camera `state` lists, by id (`--source <id>`,
   the state's name on the button and status line, `paneSource` atom; not in the MCP enums);
   `last-mode.txt` may say `external` and Fast Capture then shoots the first one.
   Pane and band messages are one Russian message (`paneFailure`, 0.11.2): a translated or
@@ -250,6 +252,9 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 
 ## Open / unverified
+
+- 0.11.3 (branch `feat/plugin-ui`): camera and light pickers, band hover magnifier. Checked with
+  `claude plugin test` only; Select and the hover veil not seen in the desktop app yet.
 
 - 0.11.2 (branch `fix/device-9`): the pane reopened after the person closed it, and pane errors
   came out Russian + English. Checked with `claude plugin test` only; the close needs a look in

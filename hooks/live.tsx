@@ -39,6 +39,8 @@ const ZOOM_STEP = 1.4
 const EV_STEP = 0.5
 const LIGHT_LEVELS = [0, 0.3, 0.6, 1]
 const FLASH_ORDER = ['off', 'auto', 'on']
+// Levels the light picker offers.
+const LIGHT_PICKS = [0.25, 0.5, 1]
 const CHIP = 72
 const LENS_LABEL: Record<string, string> = { ultraWide: 'ultra', wide: 'wide', telephoto: 'tele' }
 const SOURCE_MODES: Record<string, SnapMode> = {
@@ -557,6 +559,7 @@ export function registerLive(on: On): void {
   on('ui.render', { component: 'Pane', requestId: LIVE_PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
     const { Box, Text, Button, Input } = ui
+    const Select = 'Select' in ui ? ui.Select : null
     // The terminal has Image, not Svg.
     const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : null
     const Image = e.surface === 'terminal' && 'Image' in ui ? ui.Image : null
@@ -713,18 +716,55 @@ export function registerLive(on: On): void {
     const ev = f?.exposure ?? 0
     const evMin = info?.exposureMin ?? -2
     const evMax = info?.exposureMax ?? 2
-    const lightRow = phone && info && (
-      <Box flexDirection="row" gap={1}>
-        {flashModes.length > 1 && (
+    const lightOptions = [
+      { value: 'off', label: 'Выкл' },
+      ...(flashModes.includes('auto') ? [{ value: 'auto', label: 'Авто' }] : []),
+      ...(info?.hasLight
+        ? LIGHT_PICKS.map(l => ({ value: String(l), label: `Свет ${Math.round(l * 100)}%` }))
+        : flashModes.includes('on')
+          ? [{ value: 'on', label: 'Вкл' }]
+          : []),
+    ]
+    const lightNow =
+      level > 0
+        ? String(LIGHT_PICKS.reduce((a, b) => (Math.abs(b - level) < Math.abs(a - level) ? b : a)))
+        : lightOptions.some(o => o.value === f?.flash)
+          ? (f?.flash ?? 'off')
+          : 'off'
+    const pickLight = async (value: string) => {
+      if (value === 'off' || value === 'auto') {
+        await control($, ['light', 'off'])
+        await control($, ['flash', value])
+      } else if (value === 'on') {
+        await control($, ['flash', 'on'])
+      } else {
+        await control($, ['light', value])
+      }
+    }
+    const lightControls = Select ? (
+      // One picker for flash and light; the box keeps the contract's `flash` key.
+      lightOptions.length > 1 && (
+        <Box key="flash">
+          <Select key="light" label="Свет" options={lightOptions} value={lightNow} onSelect={value => void pickLight(value)} />
+        </Box>
+      )
+    ) : (
+      [
+        flashModes.length > 1 && (
           <Button key="flash" label={`⚡ ${f?.flash ?? 'off'}`} onPress={() => control($, ['flash', nextFlash])} />
-        )}
-        {info.hasLight && (
+        ),
+        info?.hasLight && (
           <Button
             key="light"
             label={level > 0 ? `💡 ${Math.round(level * 100)}%` : '💡 выкл'}
             onPress={() => control($, ['light', nextLight > 0 ? String(nextLight) : 'off'])}
           />
-        )}
+        ),
+      ]
+    )
+    const lightRow = phone && info && (
+      <Box flexDirection="row" gap={1}>
+        {lightControls}
         {info.exposureMin !== undefined && [
           <Button key="ev-" label="☀−" onPress={() => control($, ['exposure', String(clamp(ev - EV_STEP, evMin, evMax))])} />,
           <Button key="ev0" label={`${ev > 0 ? '+' : ''}${ev} EV`} plain dimColor={ev === 0} onPress={() => control($, ['exposure', '0'])} />,
@@ -736,6 +776,12 @@ export function registerLive(on: On): void {
     const current = sources.findIndex(s => s.mode === mode && (s.mode !== 'external' || !id || s.id === id))
     const next = sources[(current + 1) % sources.length] ?? { mode: 'iphone' as SnapMode, name: 'iPhone' }
     const nextName = next.mode === 'external' ? next.name : SHORT[next.mode]
+    const sourceKey = (s: CameraInfo['sources'][number]) => (s.mode === 'external' ? `external:${s.id ?? ''}` : s.mode)
+    const pickCamera = async (s: CameraInfo['sources'][number]) => {
+      await update($, paneCamera, () => s.mode)
+      await update($, paneSource, () => s.id ?? '')
+      await tick($)
+    }
     const shoot = async () => {
       const said = await snapToTray($, mode, '0', sourceOf(mode, id))
       await setNote($, 'shoot', said.startsWith('SnapCam') ? said : '')
@@ -752,18 +798,21 @@ export function registerLive(on: On): void {
         <Box key="status">{status}</Box>
         <Box flexDirection="row" gap={1}>
           <Button key="shoot" label="📸 Снять" variant="primary" onPress={shoot} />
-          {sources.length > 1 && (
-            <Button
-              key="camera"
-              label={`↻ ${nextName}`}
-              dimColor
-              onPress={async () => {
-                await update($, paneCamera, () => next.mode)
-                await update($, paneSource, () => next.id ?? '')
-                await tick($)
-              }}
-            />
-          )}
+          {sources.length > 1 &&
+            (Select ? (
+              <Select
+                key="camera"
+                label="Камера"
+                options={sources.map(s => ({ value: sourceKey(s), label: s.mode === 'external' ? s.name : SHORT[s.mode] }))}
+                value={sourceKey(sources[current] ?? sources[0] ?? { mode: 'iphone', name: 'iPhone' })}
+                onSelect={value => {
+                  const picked = sources.find(s => sourceKey(s) === value)
+                  if (picked) void pickCamera(picked)
+                }}
+              />
+            ) : (
+              <Button key="camera" label={`↻ ${nextName}`} dimColor onPress={() => pickCamera(next)} />
+            ))}
         </Box>
         {lensRow}
         {lightRow}
