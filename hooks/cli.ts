@@ -20,9 +20,9 @@ export const SOURCES: Record<SnapMode, { source: string; title: string }> = {
 export const CAMERAS: SnapMode[] = ['iphone', 'continuity', 'desk', 'mac']
 // Short names for the pane and the band; SOURCES.title is for the model.
 export const SHORT: Record<SnapMode, string> = {
-  iphone: 'iPhone', continuity: 'Continuity', desk: 'Desk View', mac: 'Mac camera', external: 'external camera',
+  iphone: 'iPhone', continuity: 'Continuity', desk: 'Desk View', mac: 'Mac Camera', external: 'External Camera',
 }
-export const INSTALL = 'SnapCam for Mac is not installed: build it from snapcam-app with scripts/install-mac.sh'
+export const INSTALL = "SnapCam for Mac isn't installed. Build it with scripts/install-mac.sh in snapcam-app."
 
 export type Flash = 'off' | 'on' | 'auto'
 export type Lens = 'ultraWide' | 'wide' | 'telephoto'
@@ -172,10 +172,11 @@ const REASONS: Record<string, string> = {
 
 // Reasons that carry a path or a nested reason.
 const LANDING = /(?:The last photo is )?still on its way from the iPhone \((.+?)\)\. Try again shortly\./g
-const NESTED: [RegExp, string][] = [
-  [/^SnapCam didn't start: (.+)$/s, "SnapCam didn't start"],
-  [/^Couldn't open SnapCam\.app: (.+)$/s, "Couldn't open SnapCam.app"],
-  [/^The on-device model failed: (.+)$/s, 'The on-device model failed'],
+// System text (maybe in the Mac's language) stays out: `false`.
+const NESTED: [RegExp, string, boolean][] = [
+  [/^SnapCam didn't start: (.+)$/s, "SnapCam didn't start", true],
+  [/^Couldn't open SnapCam\.app: (.+)$/s, "Couldn't open SnapCam.app", false],
+  [/^The on-device model failed: (.+)$/s, 'The on-device model failed', false],
 ]
 
 // Worded for people: words ending in a full stop. Raw errors are not.
@@ -187,11 +188,11 @@ export function paneReason(reason: string): string {
   if (known) return known
   const empty = /^No photos in (.+)$/.exec(text)
   if (empty) return `No photos in ${empty[1]} yet.`
-  for (const [pattern, head] of NESTED) {
+  for (const [pattern, head, keep] of NESTED) {
     const m = pattern.exec(text)
     if (m) {
       const said = paneReason(m[1] ?? '')
-      return sentence(said) ? `${head}: ${said}` : `${head}.`
+      return keep && sentence(said) ? `${head}: ${said}` : `${head}.`
     }
   }
 

@@ -39,7 +39,7 @@ export const contract = {
         "status" : "notApplicable"
       },
       "readText" : {
-        "detail" : "«Read Text in Photo»",
+        "detail" : "“Read Text in Photo”",
         "status" : "available"
       },
       "recent" : {

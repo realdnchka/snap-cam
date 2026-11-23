@@ -158,7 +158,7 @@ async function takeTray($: EngineInterface, items: readonly InboxItem[]): Promis
   const args = ['inbox', '--take', ...ids.flatMap(id => ['--id', id])]
   const run = await runCli($, cli, [...args, '--preview-dir', p.staging, '--preview-size', String(SIDE), '--json', '--no-launch'], 60)
   if (run.exitCode !== 0) {
-    $.ui.toast(`SnapCam: couldn't take iPhone photos from the inbox; they stay in the tray. ${paneFailure(run)}`)
+    $.ui.toast(`SnapCam: Couldn't take iPhone photos from the inbox; they stay in the tray. ${paneFailure(run)}`)
     return []
   }
   await forget($, ids)
@@ -762,7 +762,7 @@ export const register: Register = on => {
         )}
         <Box flexDirection="row" gap={1} alignItems="center">
         {now !== '' ? (
-          <Text dimColor>SnapCam: shooting with {SHORT[now as SnapMode] ?? 'the camera'}…</Text>
+          <Text dimColor>SnapCam: {SHORT[now as SnapMode] ?? 'Camera'} is shooting…</Text>
         ) : (
           [
             ...MODES.map(m => (
@@ -773,7 +773,7 @@ export const register: Register = on => {
               label="⚡ Fast Capture"
               onPress={() => void lastMode($).then(mode => snapToTray($, mode, '0'))}
             />,
-            <Button key={LIVE_PANE} label="🎥 Pane" onPress={() => void openLive($)} />,
+            <Button key={LIVE_PANE} label="🎥 Live" onPress={() => void openLive($)} />,
           ]
         )}
         </Box>

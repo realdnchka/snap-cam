@@ -26,7 +26,7 @@ test('missing stages are skipped', () => {
 
 test('a reason worded for people is shown alone', () => {
   expect(paneFailure({ exitCode: CLI_UNAVAILABLE, reason: "SnapCam isn't running." })).toBe("SnapCam isn't running.")
-  const off = 'Apple Intelligence is off. Turn it on in System Settings > Apple Intelligence & Siri, then try again.'
+  const off = 'Apple Intelligence is off. Turn it on in System Settings › Apple Intelligence & Siri, then try again.'
   expect(paneFailure({ exitCode: CLI_UNAVAILABLE, reason: off })).toBe(off)
   expect(paneFailure({ exitCode: CLI_UNAVAILABLE, reason: "SnapCam didn't start: SnapCam isn't running." })).toBe(
     "SnapCam didn't start: SnapCam isn't running.")
@@ -41,7 +41,7 @@ test('a raw reason becomes one plain line', () => {
     [64, 'unknown option --source', 'Unexpected arguments. Update SnapCam for Mac.'],
     [1, 'snapcam-cli exit 1', 'The camera or SnapCam reported an error.'],
     [1, '', 'The camera or SnapCam reported an error.'],
-    [CLI_UNAVAILABLE, "Couldn't open SnapCam.app: The application cannot be opened.", "Couldn't open SnapCam.app: The application cannot be opened."],
+    [CLI_UNAVAILABLE, "Couldn't open SnapCam.app: The application cannot be opened.", "Couldn't open SnapCam.app."],
     [CLI_UNAVAILABLE, "SnapCam didn't start: launchd said no", "SnapCam didn't start."],
     [1, 'The on-device model failed: GenerationError -1', 'The on-device model failed.'],
     [1, 'Timed out. Is the camera still on?', 'Timed out. Is the camera still on?'],

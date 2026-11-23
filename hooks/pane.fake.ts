@@ -10,7 +10,7 @@ export const LIVE = `${HOME}/Library/Application Support/snap-cam/live`
 export const A = 'aaaaaaaa-0000-4000-8000-000000000001'
 export const ORIGINAL = '/Pictures/SnapCam/Default/SnapCam 2026-11-22 at 10.00.01.heic'
 export const RECENT = recentName(ORIGINAL)
-export const MODEL_OFF = 'Apple Intelligence is off. Turn it on in System Settings > Apple Intelligence & Siri, then try again.'
+export const MODEL_OFF = 'Apple Intelligence is off. Turn it on in System Settings › Apple Intelligence & Siri, then try again.'
 
 const STATE = {
   appVersion: '1',

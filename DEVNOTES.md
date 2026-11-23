@@ -49,7 +49,7 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   sources), ms, preview. Any non-zero exit → `deny` with `cliFailure` (69 app/phone/camera
   not reachable, 75 paired phone didn't connect, 64 usage — likely an older app, 1 camera
   error). No fallback: exit 69 for the phone no longer opens Continuity. Band `📷 iPhone` /
-  `🗂 DeskView` and Fast Capture shoot at once; busy shows “shooting with <camera>…”.
+  `🗂 DeskView` and Fast Capture shoot at once; busy shows “<camera> is shooting…”.
   `/snap caps|status|pair` print the CLI's output; `/snap list` prints `state`.
 - **Phone inbox in the tray** (0.8.8, ADR 0003 step 3; snapcam-app `feat/inbox`): photos shot
   with the iPhone app's own shutter land in the Mac app's inbox. In interactive sessions
@@ -118,7 +118,7 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
 - **`/snap iphone|continuity|desk|mac|pane|list|caps|status|pair`** (`live` = `pane`).
 
 - **SnapCam pane** (0.10.0, board card 7; `hooks/live.tsx`): `/snap pane` or the band's
-  `🎥 Pane` opens pane `snap-live`. A 1 s clock (`tick`, interactive sessions) checks
+  `🎥 Live` opens pane `snap-live`. A 1 s clock (`tick`, interactive sessions) checks
   `$.ui.panes()`: while it is shown and placed with tab `camera`, one long-lived
   `$.process.spawn` of `snapcam-cli live --preview-dir <dir>/live --preview-size 640 --fps 5
   --json [--png] [--source S]` runs; anything else ends the loop, which kills the child

@@ -43,7 +43,7 @@ Buttons above the prompt — `📷 iPhone`, `🗂 DeskView`, `⚡ Fast Capture` 
 delay) — and `/snap [iphone|continuity|desk|mac]` shoot at once and attach the photo as a
 thumbnail above the prompt. On send, the mod tells the model to open the photo with Read.
 
-- `/snap pane` or `🎥 Pane` — the SnapCam pane beside the chat. Tab Camera: live video
+- `/snap pane` or `🎥 Live` — the SnapCam pane beside the chat. Tab Camera: live video
   (~5 fps, raw frames of the iPhone stream or a Mac camera; Svg on the desktop; in a terminal
   an Image the frames blit into: kitty/Ghostty read the PNG file, iTerm2 3.5+ gets its bytes;
   elsewhere the pane shows text), `📸 Shoot` (to the tray), camera switch (iPhone, Mac

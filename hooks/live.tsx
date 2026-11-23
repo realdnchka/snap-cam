@@ -141,7 +141,7 @@ async function startLive($: EngineInterface, mode: SnapMode, id: string, surface
   const p = await paths($)
   const cli = await findCli($, p)
   if (!cli) {
-    await ended($, 'SnapCam for Mac is not installed')
+    await ended($, "SnapCam for Mac isn't installed.")
     return
   }
   if (gen !== startGen) return
@@ -638,7 +638,7 @@ export function registerLive(on: On): void {
       return (
         <Box flexDirection="column" gap={1}>
           {tabs}
-          <Text dimColor>Click a photo to attach it to your next message (✓ attached).</Text>
+          <Text dimColor>Select a photo to attach it to your next message (✓ = attached).</Text>
           <Text bold>Inbox from iPhone</Text>
           {listed.length === 0 ? (
             <Text dimColor>Empty</Text>
@@ -662,7 +662,7 @@ export function registerLive(on: On): void {
             </Box>
           )}
           <Button key="gallery:refresh" label="↻ Refresh" plain dimColor onPress={() => void refreshGallery($)} />
-          <Text dimColor>Text and Ask use the newest attached photo, else the last shot.</Text>
+          <Text dimColor>Text and Ask use the newest attached photo, or the last shot if none is attached.</Text>
           {readRow}
           {text ? <Box key="read-text"><Text>{text}</Text></Box> : null}
           {noteRow}
