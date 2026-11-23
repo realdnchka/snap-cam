@@ -332,16 +332,25 @@ export async function snapToTray($: EngineInterface, mode: SnapMode, delay = 'ma
 }
 
 // Square rounded chip with the photo cropped to fit.
+// Same name, same string: a redraw hands the surface an unchanged picture.
+const chips = new Map<string, string>()
+const CHIP_CACHE = 64
+
 export async function chipSvg($: EngineInterface, name: string, side = THUMB): Promise<string | null> {
+  const key = `${side}:${name}`
+  const cached = chips.get(key)
+  if (cached) return cached
   const p = await paths($)
   const file = `${p.thumbs}/${name}`
   if (!(await $.fs.exists(file))) return null
   const { base64 } = await $.fs.read(file, { as: 'bytes' })
-
-  return (
+  const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${side}" height="${side}" viewBox="0 0 ${side} ${side}">` +
     `<defs><clipPath id="r"><rect width="${side}" height="${side}" rx="10"/></clipPath></defs>` +
     `<image clip-path="url(#r)" width="${side}" height="${side}" preserveAspectRatio="xMidYMid slice" ` +
     `href="data:image/jpeg;base64,${base64}"/></svg>`
-  )
+  if (chips.size >= CHIP_CACHE) chips.delete(chips.keys().next().value ?? '')
+  chips.set(key, svg)
+
+  return svg
 }

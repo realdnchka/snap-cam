@@ -122,7 +122,15 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   `$.ui.panes()`: while it is shown and placed with tab `camera`, one long-lived
   `$.process.spawn` of `snapcam-cli live --preview-dir <dir>/live --preview-size 640 --fps 5
   --json [--png] [--source S]` runs; anything else ends the loop, which kills the child
-  (also `ui.close`). The CLI loops held `peek`s (`LocalPeekRequest.hold`): the Mac app keeps
+  (also `ui.close`). Lease (0.11.4): desktop's tab ✕ sends no `ui.close` and the engine keeps
+  listing the pane shown, so with a redrawing surface (not terminal-only) every pane render
+  stamps `renderedAt`; after 6 s without one the tick bumps the `paneProbe` atom (which the
+  render reads), and 3 s more without a render stops the stream until the next render.
+  The CLI (snapcam-app `fix/device-10`) leaves `live` when reparented and prints
+  `{"waiting":true}` on quiet failed polls, so a stop never waits on a silent child.
+  Periodic polls (`inbox`, `state`, `recent`, notes) write atoms only when the value changed,
+  and `chipSvg` caches its strings: unchanged redraws kept repainting the band and the
+  message beside it. The CLI loops held `peek`s (`LocalPeekRequest.hold`): the Mac app keeps
   the iPhone stream on for 3 s past the last one and answers from `VideoTap` (decodes every
   frame while held, encodes the next one on request; with the enhancer on it takes the
   enhancer's raw decode instead of decoding twice), no phone round trip; Mac cameras stay

@@ -57,6 +57,8 @@ declare module 'claude-code' {
       gallery: RecentItem[]
       paneNote: string
       paneText: string
+      // Bumped to see whether any surface still draws the pane.
+      paneProbe: number
       // Attached shot preview path → its original.
       shotOriginals: Record<string, string>
     }

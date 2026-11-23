@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { A, HOME, LIVE, MODEL_OFF, ORIGINAL, RECENT, fakePaneMac as fakeMac, openPane, settle, stubEngine } from './pane.fake'
+import { A, HOME, LIVE, MODEL_OFF, ORIGINAL, PANE, RECENT, fakePaneMac as fakeMac, openPane, settle, stubEngine } from './pane.fake'
 import type { Fake } from './pane.fake'
 import { recentName } from './cli'
 import { LIVE_PANE, closeLive, openLive, registerLive, startLiveClock } from './live'
@@ -477,6 +477,46 @@ test('a pane gone from the list stops the stream and the command starts a new on
   expect(states.length).toBeGreaterThan(before)
   expect(states.at(-1)).not.toContain('--no-launch')
   expect(fake.spawns).toHaveLength(2)
+})
+
+// Desktop's tab mark closes no plugin pane: the engine still lists it shown.
+test('a listed pane no surface draws stops its stream; drawn again it restreams', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true)
+  const ui = await openPane($)
+  await clock.advance(1000)
+  expect(fake.spawns).toHaveLength(1)
+
+  await ui.unmount()
+  await clock.advance(12_000)
+  expect(fake.stopped).toBe(1)
+  await clock.advance(5000)
+  expect(fake.spawns).toHaveLength(1)
+
+  const again = await $.ui.mount({ ...PANE, surface: 'desktop' } as never)
+  await clock.advance(1000)
+  expect(fake.spawns).toHaveLength(2)
+  await again.unmount()
+})
+
+test('a drawn pane with a quiet stream keeps it: the probe redraws the pane', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { noFrames: true })
+  const ui = await openPane($)
+  await clock.advance(20_000)
+  expect(fake.spawns).toHaveLength(1)
+  expect(fake.stopped).toBe(0)
+  await ui.unmount()
+})
+
+test('on the terminal alone a quiet listed pane keeps streaming', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { surfaces: () => ['terminal'] })
+  const ui = await openPane($, 'terminal')
+  await ui.unmount()
+  await clock.advance(20_000)
+  expect(fake.spawns).toHaveLength(1)
+  expect(fake.stopped).toBe(0)
 })
 
 test('every external camera that state lists gets a camera button by its id and name', async ($, on) => {

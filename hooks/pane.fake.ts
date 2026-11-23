@@ -183,7 +183,7 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
   return fake
 }
 
-const PANE = {
+export const PANE = {
   plugin: 'snap-cam',
   component: 'Pane',
   requestId: 'snap-live',

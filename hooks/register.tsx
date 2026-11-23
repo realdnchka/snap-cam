@@ -105,21 +105,28 @@ async function pollInbox($: EngineInterface): Promise<void> {
     const listed = run.exitCode === 0 ? parseJson<InboxJson>(run.stdout).items : undefined
     if (!listed) return
     const ids = listed.map(item => item.id)
-    await update($, dismissed, list => {
-      const kept = list.filter(id => ids.includes(id))
-      return sameIds(kept, list) ? list : kept
-    })
+    // Every 3 s: write only what changed, or each reader redraws.
+    const known = await read($, dismissed)
+    if (!sameIds(known.filter(id => ids.includes(id)), known)) {
+      await update($, dismissed, list => {
+        const kept = list.filter(id => ids.includes(id))
+        return sameIds(kept, list) ? list : kept
+      })
+    }
     const shown = listed.map(item => ({ id: item.id, original: item.original, name: phoneName(item.id) }))
     for (const item of shown) {
       if (!(await $.fs.exists(`${p.thumbs}/${item.name}`))) await makeThumb($, p, item.original, item.name)
     }
-    await update($, inbox, list => (sameIds(list.map(item => item.id), ids) ? list : shown))
+    if (!sameIds((await read($, inbox)).map(item => item.id), ids)) {
+      await update($, inbox, list => (sameIds(list.map(item => item.id), ids) ? list : shown))
+    }
     // Read late: a submit may have taken some while this ran.
     const gone = await read($, dismissed)
     const fresh = shown.filter(item => !gone.includes(item.id))
-    await update($, phoneTray, list =>
-      sameIds(list.map(item => item.id), fresh.map(item => item.id)) ? list : fresh,
-    )
+    const freshIds = fresh.map(item => item.id)
+    if (!sameIds((await read($, phoneTray)).map(item => item.id), freshIds)) {
+      await update($, phoneTray, list => (sameIds(list.map(item => item.id), freshIds) ? list : fresh))
+    }
   } catch {
     // Next tick tries again.
   } finally {

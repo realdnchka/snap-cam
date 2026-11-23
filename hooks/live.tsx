@@ -19,6 +19,7 @@ const paneSource = atom({ plugin: 'snap-cam', key: 'paneSource' } as const, '')
 const paneNote = atom({ plugin: 'snap-cam', key: 'paneNote' } as const, '')
 const paneTab = atom({ plugin: 'snap-cam', key: 'paneTab' } as const, 'camera' as PaneTab)
 const paneText = atom({ plugin: 'snap-cam', key: 'paneText' } as const, '')
+const paneProbe = atom({ plugin: 'snap-cam', key: 'paneProbe' } as const, 0)
 const pending = atom({ plugin: 'snap-cam', key: 'pending' } as const, [] as string[])
 // Attached shot previews → originals; written by snapToTray in cli.ts.
 const shotOriginals = atom({ plugin: 'snap-cam', key: 'shotOriginals' } as const, {} as Record<string, string>)
@@ -119,6 +120,26 @@ let textFor = ''
 const KILL_WAIT_MS = 2000
 // Set by a close, cleared only by openLive: ticks never revive a closed pane.
 let closed = false
+// Desktop's tab mark sends no ui.close: a pane no surface renders for this long gets probed.
+const LEASE_MS = 6000
+// After a probe, this long without a render stops the stream.
+const PROBE_WAIT_MS = 3000
+let renderedAt = 0
+let probeAt: number | null = null
+
+// False once no surface drew the pane since a probe; a render renews it.
+async function leaseHeld($: EngineInterface, now: number): Promise<boolean> {
+  if (now - renderedAt <= LEASE_MS) {
+    probeAt = null
+    return true
+  }
+  if (probeAt === null) {
+    probeAt = now
+    await update($, paneProbe, n => n + 1)
+    return true
+  }
+  return now - probeAt < PROBE_WAIT_MS
+}
 
 // Stops the child; resolves once it is gone or after KILL_WAIT_MS.
 function stopLive($: EngineInterface): Promise<void> {
@@ -258,19 +279,22 @@ async function tick($: EngineInterface): Promise<void> {
   ticking = true
   try {
     const pane = (await $.ui.panes()).find(one => one.id === LIVE_PANE)
+    const surfaces = await $.session.surfaces()
+    const now = await $.clock.now()
     // A closing pane is still listed until its ui.close chain ends.
-    const shown = !closed && !!pane && pane.isShown && pane.isPlaced
+    const listed = !closed && !!pane && pane.isShown && pane.isPlaced
+    // The terminal blits without renders, but lists its panes truly.
+    const redraws = surfaces.some(s => s !== 'terminal')
     const tab = await read($, paneTab)
+    const shown = listed && (!redraws || tab !== 'camera' || (await leaseHeld($, now)))
     const mode = await read($, paneCamera)
     const id = await read($, paneSource)
-    const surfaces = await $.session.surfaces()
     // A surface came or went: restart with its flags.
     // Only --png needs a new child; the redraw policy changes in place.
     if (run) run.everyFrame = surfaces.some(s => s !== 'terminal')
     const changed = run && run.blit !== surfaces.includes('terminal') && run.denials < MAX_DENIALS
     const moved = run && (run.mode !== mode || run.source !== sourceOf(mode, id))
     if (run && (!shown || tab !== 'camera' || moved || changed)) void stopLive($)
-    const now = await $.clock.now()
     const info = await read($, cameraInfo)
     const every = mode === 'iphone' && !info?.lenses.length ? INFO_WAIT_MS : INFO_EVERY_MS
     if (shown && tab === 'camera' && !infoBusy && (infoAt === null || now - infoAt > every)) {
@@ -321,7 +345,8 @@ function toInfo(json: Partial<StateJson>): CameraInfo {
 async function setNote($: EngineInterface, from: string, text: string): Promise<void> {
   if (!text && noteFrom !== from) return
   noteFrom = text ? from : ''
-  await update($, paneNote, () => text)
+  // Periodic polls: an unchanged write would still redraw every reader.
+  if ((await read($, paneNote)) !== text) await update($, paneNote, () => text)
 }
 
 async function refreshInfo($: EngineInterface): Promise<void> {
@@ -339,7 +364,8 @@ async function refreshInfo($: EngineInterface): Promise<void> {
       await setNote($, 'state', paneFailure(res))
       return
     }
-    await update($, cameraInfo, () => toInfo(parseJson<StateJson>(res.stdout)))
+    const next = toInfo(parseJson<StateJson>(res.stdout))
+    if (JSON.stringify(await read($, cameraInfo)) !== JSON.stringify(next)) await update($, cameraInfo, () => next)
     await setNote($, 'state', '')
   } finally {
     infoBusy = false
@@ -375,9 +401,9 @@ async function readGallery($: EngineInterface): Promise<void> {
   for (const item of items) {
     if (!(await $.fs.exists(`${p.thumbs}/${item.name}`))) await makeThumb($, p, item.original, item.name)
   }
-  await update($, gallery, list =>
-    list.length === items.length && list.every((one, i) => one.original === items[i]?.original) ? list : items,
-  )
+  const same = (list: RecentItem[]) =>
+    list.length === items.length && list.every((one, i) => one.original === items[i]?.original)
+  if (!same(await read($, gallery))) await update($, gallery, list => (same(list) ? list : items))
 }
 
 // One camera command; its framing answer updates the controls.
@@ -497,6 +523,8 @@ async function toggleInbox($: EngineInterface, item: InboxItem): Promise<void> {
 
 export async function openLive($: EngineInterface): Promise<boolean> {
   closed = false
+  renderedAt = await $.clock.now()
+  probeAt = null
   const opened = await $.ui.open({ id: LIVE_PANE, title: TITLE })
   infoAt = null
   launchNext = true
@@ -579,6 +607,9 @@ export function registerLive(on: On): void {
     const info = await read($, cameraInfo)
     const note = await read($, paneNote)
     const frame = await read($, liveFrame)
+    // Subscribes to probes; rendering at all renews the stream's lease.
+    await read($, paneProbe)
+    renderedAt = await $.clock.now()
     const terminal = e.surface === 'terminal'
     const setTab = (next: 'camera' | 'gallery') => async () => {
       await update($, paneTab, () => next)
