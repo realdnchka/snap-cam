@@ -675,7 +675,7 @@ test('a stream error and a failed state read show one Russian message, not both'
   await ui.unmount()
 })
 
-test('a band thumbnail shows a magnifier on hover, no 🔍, and opens the preview', async ($, on) => {
+test('a band thumbnail reveals a ⌕ on hover, no 🔍, that opens the preview', async ($, on) => {
   const clock = mock.clock(on)
   const fake = fakeMac(on, () => true)
   const ui = await openPane($)
@@ -686,12 +686,12 @@ test('a band thumbnail shows a magnifier on hover, no 🔍, and opens the previe
   const band = await $.ui.mount({ plugin: 'snap-cam', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false } } as never)
   const buttons = await band.findAll({ type: 'Button' })
   expect(buttons.some(button => /🔍/.test(String(button.props.label ?? '')))).toBe(false)
-  const glyph = (await band.findAll({ type: 'Svg' })).find(svg => svg.props.alt === 'Открыть фото')
-  expect(String(glyph?.props.source)).toContain('<circle')
+  expect(buttons.some(button => button.props.label === 'открыть')).toBe(false)
   const veil = (await band.findAll({ type: 'Box' })).find(box => box.props.display === 'none')
   // The kit drops `hover`; the veil is hidden until the surface reveals it.
   expect(veil).toBeDefined()
   const open = buttons.find(button => String(button.key).startsWith('open:'))
+  expect(open?.props.label).toBe('⌕')
   await band.press({ key: String(open?.key) })
   await band.unmount()
 

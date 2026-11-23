@@ -29,7 +29,7 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
 ## How it works
 
 - **Band above the prompt** (`ui.render AbovePrompt`, desktop/terminal/vscode, not mobile):
-  row 1 = tray of pending thumbnails (hover veils a thumbnail with an SVG magnifier; `открыть` opens the preview pane, ✕ drops it); row 2 =
+  row 1 = tray of pending thumbnails (hover reveals a veil with a `⌕` Button that opens the preview pane; the terminal has `открыть`; ✕ drops it); row 2 =
   `📷 iPhone`, `🗂 DeskView`, `⚡ Fast Capture` (last-used camera, auto-shot, delay 0).
 - **One capture path** (0.9.1, ADR 0004; `shoot`): `findCli` = `$SNAPCAM_CLI`, else
   `~/Applications/SnapCam.app/Contents/Helpers/snapcam-cli`, else `/Applications/…`; none →

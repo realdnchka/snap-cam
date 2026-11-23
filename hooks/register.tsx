@@ -27,12 +27,10 @@ const MODES: { mode: SnapMode; label: string }[] = [
 
 // Band thumbnail side, CSS px.
 const TILE = THUMB / 2
-// Hover veil over a band thumbnail: a dimmed tile with a magnifier.
-const MAGNIFIER =
+// Hover veil behind the band thumbnail's ⌕ button.
+const VEIL =
   `<svg xmlns="http://www.w3.org/2000/svg" width="${TILE}" height="${TILE}" viewBox="0 0 48 48">` +
-  '<rect width="48" height="48" rx="5" fill="rgba(0,0,0,0.35)"/>' +
-  '<g fill="none" stroke="#fff" stroke-linecap="round">' +
-  '<circle cx="21" cy="21" r="8" stroke-width="3"/><line x1="27" y1="27" x2="34" y2="34" stroke-width="3.5"/></g></svg>'
+  '<rect width="48" height="48" rx="5" fill="rgba(0,0,0,0.35)"/></svg>'
 
 
 const TOOL = 'mcp__snap-cam__take_photo'
@@ -736,26 +734,26 @@ export const register: Register = on => {
           <Box flexDirection="row" gap={1} alignItems="center">
             {tray.map((item, i) => {
               const svg = chips[i]
+              const open = () => void openPreview($, item.name, item.original || undefined)
               return (
                 <Box key={item.key} flexDirection="row" alignItems="center">
                   {svg && Svg ? (
                     <Box key={`tile:${item.key}`} position="relative">
                       <Svg source={svg} alt={item.name} width={TILE} height={TILE} />
-                      <Box position="absolute" top={0} left={0} display="none" hover={{ display: 'flex' }}>
-                        <Svg source={MAGNIFIER} alt="Открыть фото" width={TILE} height={TILE} />
+                      {/* Revealed on hover: a veil with a centred ⌕ that opens the preview. */}
+                      <Box position="absolute" top={0} left={0} right={0} bottom={0} display="none" hover={{ display: 'flex' }}>
+                        <Svg source={VEIL} alt="Открыть фото" width={TILE} height={TILE} />
+                        <Box position="absolute" top={0} left={0} right={0} bottom={0} justifyContent="center" alignItems="center">
+                          <Button key={`open:${item.key}`} label="⌕" plain onPress={open} />
+                        </Box>
                       </Box>
                     </Box>
                   ) : (
-                    <Text>{item.id ? '📱' : '📷'} {item.name}</Text>
+                    [
+                      <Text key="name">{item.id ? '📱' : '📷'} {item.name}</Text>,
+                      <Button key={`open:${item.key}`} label="открыть" plain dimColor onPress={open} />,
+                    ]
                   )}
-                  {/* Only a Button takes presses, and it holds text alone. */}
-                  <Button
-                    key={`open:${item.key}`}
-                    label="открыть"
-                    plain
-                    dimColor
-                    onPress={() => void openPreview($, item.name, item.original || undefined)}
-                  />
                   <Button key={`x:${item.key}`} label="✕" plain onPress={() => void drop(item)} />
                 </Box>
               )
