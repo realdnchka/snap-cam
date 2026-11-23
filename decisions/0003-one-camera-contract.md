@@ -82,7 +82,7 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 | recent photos | ✅ history grid | — (last photo only) | — | ✅ gallery `recent:*` | ✅ `recent` | ✅ `recent_photos count` | 🔜 |
 | format / size / quality | ✅ inspector (format, size, quality); format and size shared with the iPhone | ✅ settings sheet (format, size); the Mac's values | — | — | ✅ `capture --format --size --quality` | — (Mac default) | — |
 | pair / forget | ✅ | ✅ | — | — | ✅ `pair` | — | — |
-| read text | ✅ history: Read Text | — (the Mac reads) | — | ✅ gallery `read` | ✅ `ocr`, `ocr --recent` | ✅ `read_text path recent` | ✅ “Read Text in Photo” |
+| read text | ✅ history: Read Text | ✅ Find Text outlines live text in the viewfinder; the Mac reads photos | — | ✅ gallery `read` | ✅ `ocr`, `ocr --recent` | ✅ `read_text path recent` | ✅ “Read Text in Photo” |
 | ask about a photo | ✅ history: Ask | — (the Mac answers) | — | ✅ gallery `ask`, `question` | ✅ `ask --question`, `ask --recent` | ✅ `ask_photo question path recent` | 🔜 |
 <!-- contract:end -->
 

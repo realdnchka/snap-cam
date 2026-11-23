@@ -413,8 +413,8 @@ export const contract = {
         "status" : "notApplicable"
       },
       "readText" : {
-        "detail" : "the Mac reads",
-        "status" : "notApplicable"
+        "detail" : "Find Text outlines live text in the viewfinder; the Mac reads photos",
+        "status" : "available"
       },
       "recent" : {
         "detail" : "last photo only",
