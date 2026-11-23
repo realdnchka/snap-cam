@@ -10,7 +10,7 @@ Design decisions: `decisions/`. The iPhone/Mac apps live in `~/Dev/snapcam/snapc
 
 | Path | What |
 |---|---|
-| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.11.4) |
+| `.claude-plugin/plugin.json` | manifest; **bump `version` on every change** (now 0.11.5) |
 | `hooks/hooks.json` → `hooks/register.tsx` | the mod (Claude Code function hooks API); imports `cli.ts` (CLI helpers, `shoot`) and `live.tsx` (the pane) |
 | `types/index.d.ts` | `$.state` contract: `snap-cam.{busy, pending, viewing, phoneTray, dismissed}`; pane (0.10.0): `inbox, paneTab, paneCamera, paneSource, liveFrame, cameraInfo, gallery, paneNote, paneText` |
 | `README.md` | user-facing summary |
@@ -122,7 +122,7 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   `$.ui.panes()`: while it is shown and placed with tab `camera`, one long-lived
   `$.process.spawn` of `snapcam-cli live --preview-dir <dir>/live --preview-size 640 --fps 5
   --json [--png] [--source S]` runs; anything else ends the loop, which kills the child
-  (also `ui.close`). Lease (0.11.4): desktop's tab ✕ sends no `ui.close` and the engine keeps
+  (also `ui.close`). Lease (0.11.5): desktop's tab ✕ sends no `ui.close` and the engine keeps
   listing the pane shown, so with a redrawing surface (not terminal-only) every pane render
   stamps `renderedAt`; after 6 s without one the tick bumps the `paneProbe` atom (which the
   render reads), and 3 s more without a render stops the stream until the next render.
