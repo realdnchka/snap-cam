@@ -68,7 +68,7 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 
 | Command | Mac app | iPhone screen | Camera Control | Claude pane | CLI | MCP | App Intents |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| shoot | ✅ iPhone or a Mac camera, source picker; shutter over the live view | ✅ shutter; to the Mac inbox | ✅ full press | ✅ `shoot`, `camera` picks the source | ✅ `capture`, `capture --source` | ✅ `take_photo camera` | 🔜 “Take a SnapCam photo” |
+| shoot | ✅ iPhone or a Mac camera, source picker; shutter over the live view | ✅ shutter; to the Mac inbox | ✅ full press | ✅ `shoot`, `camera` picks the source | ✅ `capture`, `capture --source` | ✅ `take_photo camera` | ✅ “Take Photo”: the Mac source or opens the iPhone app; Control Center planned |
 | frame: lens | ✅ inspector, live; zoom ruler stops over the live view | ✅ zoom ruler stops | ✅ system zoom slider switches lenses | ✅ `lens:*` buttons, live | ✅ `frame --lens`, `capture --lens` | ✅ `frame lens`, `take_photo lens` | 🔜 |
 | frame: zoom | ✅ inspector, live; pinch and zoom ruler over the live view | ✅ pinch, zoom ruler | ✅ system slider | ✅ `zoom-` `zoom+`, live | ✅ `frame --zoom`, `capture --zoom` | ✅ `frame zoom`, `take_photo zoom` | 🔜 |
 | focus / AE-AF lock | ✅ click or tap in the live view; ⌥-click or touch and hold = AE/AF lock; View ▸ Focus on Center, Lock, Reset | ✅ tap; hold = AE/AF lock | — | — | — | — | — |

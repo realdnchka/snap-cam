@@ -46,8 +46,8 @@ export const contract = {
         "status" : "planned"
       },
       "shoot" : {
-        "detail" : "“Take a SnapCam photo”",
-        "status" : "planned"
+        "detail" : "“Take Photo”: the Mac source or opens the iPhone app; Control Center planned",
+        "status" : "available"
       },
       "state" : {
         "status" : "notApplicable"
