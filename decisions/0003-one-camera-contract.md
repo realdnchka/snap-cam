@@ -75,7 +75,7 @@ renders to snapcam-app `docs/camera-contract.md` (`snapcam-cli contract --markdo
 | flash | ✅ inspector, live, flash dial over the live view; on = light | ✅ flash dial; on = light | ✅ picker | ✅ `flash` cycles; on = light | ✅ `flash`, `capture --flash` | ✅ `take_photo flash`; on = light | 🔜 |
 | light | ✅ inspector brightness, live, flash dial over the live view | ✅ brightness slider while on | ✅ brightness slider | ✅ `light` steps | ✅ `light` | ✅ `light level` | 🔜 |
 | exposure | ✅ inspector, live; exposure ruler over the live view | ✅ exposure ruler | ✅ system slider | ✅ `ev-` `ev0` `ev+` | ✅ `exposure` | ✅ `frame exposure` | — |
-| live video | ✅ iPhone live view: latency, fps, iPhone battery, Turbo / Enhance / Custom switch; inspector: frame rate, enhance, Reset to Defaults; Mac camera preview | ✅ viewfinder; link, Mac name, the Mac's latency, fps, battery and Turbo / Enhance / Custom switch | — | ✅ `live`, 5 fps | ✅ `live --fps --png` | — | — |
+| live video | ✅ iPhone live view: latency, fps, iPhone battery, Turbo / Enhance / Custom switch; inspector: frame rate, enhance, Reset to Defaults; Mac camera preview | ✅ viewfinder; link, Mac name, the Mac's latency, fps and Turbo / Enhance / Custom switch | — | ✅ `live`, 5 fps | ✅ `live --fps --png` | — | — |
 | peek | ✅ inspector, only without live video; ⇧⌘F opens the live view | — | — | — (live video instead) | ✅ `peek --preview`, `peek --source` | ✅ `peek camera` | — |
 | state / caps | ✅ | ✅ | — | ✅ `status` line | ✅ `state`, `caps`, `status` | ✅ `camera_state` | — |
 | inbox | — (phone shots go to history; the queue is for Claude) | ✅ offline queue (unsent shots) | — (sends) | ✅ tray, gallery `inbox:*` | ✅ `inbox`, `inbox --take --id` | — (tray only) | 🔜 |

@@ -403,7 +403,7 @@ export const contract = {
         "status" : "available"
       },
       "liveVideo" : {
-        "detail" : "viewfinder; link, Mac name, the Mac's latency, fps, battery and Turbo / Enhance / Custom switch",
+        "detail" : "viewfinder; link, Mac name, the Mac's latency, fps and Turbo / Enhance / Custom switch",
         "status" : "available"
       },
       "pairing" : {
