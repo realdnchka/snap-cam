@@ -31,16 +31,14 @@ const LIVE_SIDE = 640
 // Svg.source limit; a bigger frame is skipped.
 const SVG_MAX = 131_072
 const TICK_MS = 1000
-// Tabs, status, shoot, lens and light rows under the terminal video.
-const CONTROL_ROWS = 10
+// Tabs, status, shoot, camera, lens and light rows under the terminal video.
+const CONTROL_ROWS = 12
 const GALLERY_COUNT = 8
 const GALLERY_EVERY_MS = 15_000
 const ZOOM_STEP = 1.4
 const EV_STEP = 0.5
-const LIGHT_LEVELS = [0, 0.3, 0.6, 1]
-const FLASH_ORDER = ['off', 'auto', 'on']
-// Levels the light picker offers.
-const LIGHT_PICKS = [0.25, 0.5, 1]
+// Light stepper levels; 0 is light and flash off.
+const LIGHT_STEPS = [0, 0.25, 0.5, 0.75, 1]
 const CHIP = 72
 const LENS_LABEL: Record<string, string> = { ultraWide: 'ultra', wide: 'wide', telephoto: 'tele' }
 const SOURCE_MODES: Record<string, SnapMode> = {
@@ -89,6 +87,10 @@ let run: Run | null = null
 let retryAt = 0
 const RETRY_MS = 5000
 const INFO_EVERY_MS = 10_000
+// While the phone's caps are unknown, `state` is read this often.
+const INFO_WAIT_MS = 2000
+// Rough CSS px per pane column on desktop.
+const CELL_PX = 8
 let ticking = false
 // The terminal refused a file source once: draw from bytes.
 let terminalBytes = false
@@ -209,6 +211,12 @@ async function onLine($: EngineInterface, me: Run, line: Partial<LiveLine>): Pro
     lens: line.lens, zoom: line.zoom, phone: line.phone,
   }
   if (me.blit && line.png) void blitFrame($, me, line.png, line.seq)
+  const before = await read($, liveFrame)
+  // The camera came up: read its caps now, not at the next poll.
+  if (before.error || before.seq === 0) {
+    const info = await read($, cameraInfo)
+    if (before.error || (me.mode === 'iphone' && !info?.lenses.length)) infoAt = null
+  }
   // The terminal swaps the picture by blit; redraw only when the words or the shape change.
   await update($, liveFrame, f => {
     const same =
@@ -263,7 +271,9 @@ async function tick($: EngineInterface): Promise<void> {
     const moved = run && (run.mode !== mode || run.source !== sourceOf(mode, id))
     if (run && (!shown || tab !== 'camera' || moved || changed)) void stopLive($)
     const now = await $.clock.now()
-    if (shown && tab === 'camera' && !infoBusy && (infoAt === null || now - infoAt > INFO_EVERY_MS)) {
+    const info = await read($, cameraInfo)
+    const every = mode === 'iphone' && !info?.lenses.length ? INFO_WAIT_MS : INFO_EVERY_MS
+    if (shown && tab === 'camera' && !infoBusy && (infoAt === null || now - infoAt > every)) {
       infoAt = now
       void refreshInfo($).catch(() => {})
     }
@@ -496,7 +506,8 @@ export async function openLive($: EngineInterface): Promise<boolean> {
 }
 
 async function videoSvg($: EngineInterface, frame: LiveFrame): Promise<string | null> {
-  if (!frame.preview || !frame.width || !frame.height || !(await $.fs.exists(frame.preview))) return null
+  // A frame mid-write keeps the last picture, so the layout never collapses.
+  if (!frame.preview || !frame.width || !frame.height || !(await $.fs.exists(frame.preview))) return lastSvg
   const { base64 } = await $.fs.read(frame.preview, { as: 'bytes' })
   const { width: w, height: h } = frame
   const svg =
@@ -559,7 +570,6 @@ export function registerLive(on: On): void {
   on('ui.render', { component: 'Pane', requestId: LIVE_PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
     const { Box, Text, Button, Input } = ui
-    const Select = 'Select' in ui ? ui.Select : null
     // The terminal has Image, not Svg.
     const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : null
     const Image = e.surface === 'terminal' && 'Image' in ui ? ui.Image : null
@@ -686,7 +696,10 @@ export function registerLive(on: On): void {
       video = source ? <Image key="video" source={source} columns={columns} rows={rows} alt="Живое видео SnapCam" /> : null
     } else if (Svg) {
       const svg = await videoSvg($, frame)
-      video = svg ? <Svg source={svg} alt="Живое видео SnapCam" /> : null
+      // A fixed box: the surface needn't measure each new frame's markup.
+      const width = Math.min(frame.width ?? LIVE_SIDE, e.props.bodyColumns * CELL_PX)
+      const height = Math.round((width * (frame.height ?? 3)) / (frame.width ?? 4))
+      video = svg ? <Svg source={svg} alt="Живое видео SnapCam" width={width} height={height} /> : null
     }
     const waiting = frame.error ?? (frame.seq === 0 ? 'Подключаюсь к камере…' : 'Кадр слишком большой')
     // Errors show over a frozen last frame too.
@@ -697,7 +710,7 @@ export function registerLive(on: On): void {
     }
 
     const lensRow = phone && info && info.lenses.length > 0 && (
-      <Box flexDirection="row" gap={1}>
+      <Box key="lens-row" flexDirection="row" gap={1}>
         {info.lenses.map(lens => (
           <Button
             key={`lens:${lens.kind}`}
@@ -711,61 +724,34 @@ export function registerLive(on: On): void {
         <Button key="zoom+" label="+" onPress={() => control($, ['frame', '--zoom', String(clamp(zoomNow * ZOOM_STEP, info.zoomMin, info.zoomMax))])} />
       </Box>
     )
-    const flashModes = FLASH_ORDER.filter(m => info?.flashModes.includes(m))
-    const nextFlash = flashModes[(flashModes.indexOf(f?.flash ?? 'off') + 1) % Math.max(flashModes.length, 1)] ?? 'off'
     const level = f?.light ?? 0
-    const nextLight = LIGHT_LEVELS.find(l => l > level + 0.01) ?? 0
+    const step = LIGHT_STEPS.reduce((best, l, i) => (Math.abs(l - level) < Math.abs((LIGHT_STEPS[best] ?? 0) - level) ? i : best), 0)
     const ev = f?.exposure ?? 0
     const evMin = info?.exposureMin ?? -2
     const evMax = info?.exposureMax ?? 2
-    const lightOptions = [
-      { value: 'off', label: 'Выкл' },
-      ...(flashModes.includes('auto') ? [{ value: 'auto', label: 'Авто' }] : []),
-      ...(info?.hasLight
-        ? LIGHT_PICKS.map(l => ({ value: String(l), label: `Свет ${Math.round(l * 100)}%` }))
-        : flashModes.includes('on')
-          ? [{ value: 'on', label: 'Вкл' }]
-          : []),
-    ]
-    const lightNow =
-      level > 0
-        ? String(LIGHT_PICKS.reduce((a, b) => (Math.abs(b - level) < Math.abs(a - level) ? b : a)))
-        : lightOptions.some(o => o.value === f?.flash)
-          ? (f?.flash ?? 'off')
-          : 'off'
-    const pickLight = async (value: string) => {
-      if (value === 'off' || value === 'auto') {
-        await control($, ['light', 'off'])
-        await control($, ['flash', value])
-      } else if (value === 'on') {
-        await control($, ['flash', 'on'])
-      } else {
-        await control($, ['light', value])
-      }
+    const setLight = async (to: number) => {
+      if (to > 0) return control($, ['light', String(to)])
+      await control($, ['light', 'off'])
+      await control($, ['flash', 'off'])
     }
-    const lightControls = Select ? (
-      // One picker for flash and light; the box keeps the contract's `flash` key.
-      lightOptions.length > 1 && (
-        <Box key="flash">
-          <Select key="light" label="Свет" options={lightOptions} value={lightNow} onSelect={value => void pickLight(value)} />
-        </Box>
-      )
-    ) : (
-      [
-        flashModes.length > 1 && (
-          <Button key="flash" label={`⚡ ${f?.flash ?? 'off'}`} onPress={() => control($, ['flash', nextFlash])} />
-        ),
-        info?.hasLight && (
-          <Button
-            key="light"
-            label={level > 0 ? `💡 ${Math.round(level * 100)}%` : '💡 выкл'}
-            onPress={() => control($, ['light', nextLight > 0 ? String(nextLight) : 'off'])}
-          />
-        ),
-      ]
-    )
+    const lightAt = (i: number) => () => setLight(LIGHT_STEPS[clamp(i, 0, LIGHT_STEPS.length - 1)] ?? 0)
+    // The `flash` box keeps the contract's key: on the iPhone flash on is this light.
+    const lightControls = info?.hasLight ? (
+      <Box key="flash" flexDirection="row" gap={1}>
+        <Button key="light-" label="💡−" onPress={lightAt(step - 1)} />
+        <Button key="light" label={level > 0 ? `Свет ${Math.round(level * 100)}%` : 'Выкл'} plain dimColor={level === 0} onPress={lightAt(0)} />
+        <Button key="light+" label="💡+" onPress={lightAt(step + 1)} />
+      </Box>
+    ) : info?.flashModes.includes('on') ? (
+      <Button
+        key="flash"
+        label={f?.flash === 'on' ? '⚡ Вспышка вкл' : '⚡ Вспышка выкл'}
+        variant={f?.flash === 'on' ? 'primary' : undefined}
+        onPress={() => control($, ['flash', f?.flash === 'on' ? 'off' : 'on'])}
+      />
+    ) : null
     const lightRow = phone && info && (
-      <Box flexDirection="row" gap={1}>
+      <Box key="light-row" flexDirection="row" gap={1}>
         {lightControls}
         {info.exposureMin !== undefined && [
           <Button key="ev-" label="☀−" onPress={() => control($, ['exposure', String(clamp(ev - EV_STEP, evMin, evMax))])} />,
@@ -776,8 +762,6 @@ export function registerLive(on: On): void {
     )
     const sources = info?.sources ?? [{ mode: 'iphone' as SnapMode, name: 'iPhone' }]
     const current = sources.findIndex(s => s.mode === mode && (s.mode !== 'external' || !id || s.id === id))
-    const next = sources[(current + 1) % sources.length] ?? { mode: 'iphone' as SnapMode, name: 'iPhone' }
-    const nextName = next.mode === 'external' ? next.name : SHORT[next.mode]
     const sourceKey = (s: CameraInfo['sources'][number]) => (s.mode === 'external' ? `external:${s.id ?? ''}` : s.mode)
     const pickCamera = async (s: CameraInfo['sources'][number]) => {
       await update($, paneCamera, () => s.mode)
@@ -798,24 +782,22 @@ export function registerLive(on: On): void {
           {problem}
         </Box>
         <Box key="status">{status}</Box>
-        <Box flexDirection="row" gap={1}>
+        <Box key="shoot-row" flexDirection="row" gap={1}>
           <Button key="shoot" label="📸 Снять" variant="primary" onPress={shoot} />
-          {sources.length > 1 &&
-            (Select ? (
-              <Select
-                key="camera"
-                label="Камера"
-                options={sources.map(s => ({ value: sourceKey(s), label: s.mode === 'external' ? s.name : SHORT[s.mode] }))}
-                value={sourceKey(sources[current] ?? sources[0] ?? { mode: 'iphone', name: 'iPhone' })}
-                onSelect={value => {
-                  const picked = sources.find(s => sourceKey(s) === value)
-                  if (picked) void pickCamera(picked)
-                }}
-              />
-            ) : (
-              <Button key="camera" label={`↻ ${nextName}`} dimColor onPress={() => pickCamera(next)} />
-            ))}
         </Box>
+        {sources.length > 1 && (
+          <Box key="camera" flexDirection="row" gap={1} flexWrap="wrap">
+            {sources.map((s, i) => (
+              <Button
+                key={`camera:${sourceKey(s)}`}
+                label={s.mode === 'external' ? s.name : SHORT[s.mode]}
+                variant={i === current ? 'primary' : undefined}
+                dimColor={i !== current}
+                onPress={() => pickCamera(s)}
+              />
+            ))}
+          </Box>
+        )}
         {lensRow}
         {lightRow}
         {/* A failed state poll and the stream's error tell one outage. */}

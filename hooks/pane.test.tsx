@@ -111,47 +111,89 @@ test('pane controls drive the camera through snapcam-cli', async ($, on) => {
   await ui.unmount()
 })
 
-test('one light picker sets flash and light: off, auto or a level', async ($, on) => {
+test('the light stepper goes by quarters; its middle and zero turn light and flash off', async ($, on) => {
   const clock = mock.clock(on)
   const fake = fakeMac(on, () => true)
   const ui = await openPane($)
   await clock.advance(1000)
 
-  expect(await ui.find({ key: 'flash', type: 'Button' })).toBeUndefined()
-  const picker = await ui.find({ key: 'light' })
-  expect(picker?.type).toBe('Select')
-  expect((picker?.props.options as { label: string }[]).map(o => o.label)).toEqual(['Выкл', 'Авто', 'Свет 25%', 'Свет 50%', 'Свет 100%'])
-  expect(picker?.props.value).toBe('off')
-
-  await ui.select({ key: 'light', value: '0.5' })
-  expect((await ui.find({ key: 'light' }))?.props.value).toBe('0.5')
-  await ui.select({ key: 'light', value: 'auto' })
-  expect((await ui.find({ key: 'light' }))?.props.value).toBe('auto')
-  await ui.select({ key: 'light', value: 'off' })
-  expect((await ui.find({ key: 'light' }))?.props.value).toBe('off')
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
+  expect((await ui.find({ key: 'light' }))?.props.label).toBe('Выкл')
+  await ui.press({ key: 'light+' })
+  await ui.press({ key: 'light+' })
+  expect((await ui.find({ key: 'light' }))?.props.label).toBe('Свет 50%')
+  await ui.press({ key: 'light-' })
+  await ui.press({ key: 'light' })
+  expect((await ui.find({ key: 'light' }))?.props.label).toBe('Выкл')
+  await ui.press({ key: 'light+' })
+  await ui.press({ key: 'light-' })
 
   const own = fake.calls.filter(args => ['flash', 'light'].includes(args[0] ?? ''))
   expect(own).toEqual([
+    ['light', '0.25', '--json'],
     ['light', '0.5', '--json'],
+    ['light', '0.25', '--json'],
     ['light', 'off', '--json'],
-    ['flash', 'auto', '--json'],
+    ['flash', 'off', '--json'],
+    ['light', '0.25', '--json'],
     ['light', 'off', '--json'],
     ['flash', 'off', '--json'],
   ])
   await ui.unmount()
 })
 
-test('the camera picker switches the live source and restarts the stream', async ($, on) => {
+test('a phone with flash and no light gets an on/off flash toggle', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { noTorch: true })
+  const ui = await openPane($)
+  await clock.advance(1000)
+
+  expect(await ui.find({ key: 'light' })).toBeUndefined()
+  expect((await ui.find({ key: 'flash' }))?.props.label).toBe('⚡ Вспышка выкл')
+  await ui.press({ key: 'flash' })
+  expect((await ui.find({ key: 'flash' }))?.props.label).toBe('⚡ Вспышка вкл')
+  await ui.press({ key: 'flash' })
+  expect(fake.calls.filter(args => args[0] === 'flash')).toEqual([['flash', 'on', '--json'], ['flash', 'off', '--json']])
+  await ui.unmount()
+})
+
+test('controls appear once the phone comes up after the pane opened without it', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { noPhone: 1 })
+  const ui = await openPane($)
+  await clock.advance(1000)
+
+  expect(fake.calls.filter(args => args[0] === 'state').length).toBeGreaterThan(1)
+  expect(await ui.find({ key: 'lens:wide' })).toBeDefined()
+  expect(await ui.find({ key: 'light+' })).toBeDefined()
+  expect(await ui.find({ key: 'ev+' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('without the phone `state` is polled fast until its caps come', async ($, on) => {
+  const clock = mock.clock(on)
+  const fake = fakeMac(on, () => true, { noPhone: 3, noFrames: true })
+  const ui = await openPane($)
+  await clock.advance(1000)
+  expect(await ui.find({ key: 'lens:wide' })).toBeUndefined()
+
+  // Every 3 s with the 1 s tick; the 10 s poll would read once by now.
+  await clock.advance(9000)
+  expect(fake.calls.filter(args => args[0] === 'state')).toHaveLength(4)
+  expect(await ui.find({ key: 'lens:wide' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the camera buttons switch the live source and restart the stream', async ($, on) => {
   const clock = mock.clock(on)
   const fake = fakeMac(on, () => true)
   const ui = await openPane($)
   await clock.advance(1000)
 
-  const picker = await ui.find({ key: 'camera' })
-  expect(picker?.type).toBe('Select')
-  expect(picker?.props.value).toBe('iphone')
-  expect((picker?.props.options as { label: string }[]).map(o => o.label)).toEqual(['iPhone', 'Desk View'])
-  await ui.select({ key: 'camera', value: 'desk' })
+  expect(await ui.find({ type: 'Select' })).toBeUndefined()
+  expect((await ui.find({ key: 'camera:iphone' }))?.props.variant).toBe('primary')
+  expect((await ui.find({ key: 'camera:desk' }))?.props.label).toBe('Desk View')
+  await ui.press({ key: 'camera:desk' })
   await clock.advance(1000)
   expect(fake.stopped).toBe(1)
   expect(fake.spawns.at(-1)).toContain('deskView')
@@ -261,8 +303,8 @@ test('the terminal video leaves room for the controls below it', async ($, on) =
   await clock.advance(1000)
 
   const video = await ui.find({ key: 'video' })
-  expect(video?.props.rows).toBe(30)
-  expect(video?.props.columns).toBe(80)
+  expect(video?.props.rows).toBe(28)
+  expect(video?.props.columns).toBe(75)
   await ui.unmount()
 })
 
@@ -280,7 +322,8 @@ test('a terminal that refuses file pictures gets the frame as bytes', async ($, 
 
 test('a failed state read shows why, and the next good one clears it without launching the app', async ($, on) => {
   const clock = mock.clock(on)
-  const fake = fakeMac(on, () => true, { stateFails: 1 })
+  // Two: the first frame reads `state` again at once.
+  const fake = fakeMac(on, () => true, { stateFails: 2 })
   const ui = await openPane($)
   await clock.advance(1000)
   expect((await ui.drawn()) && (await ui.find({ type: 'Text', text: 'SnapCam не запущен.' }))).toBeDefined()
@@ -307,7 +350,7 @@ test('the band button opens the pane and starts the stream', async ($, on) => {
 
 test('an app message the pane has no translation for passes through', async ($, on) => {
   const clock = mock.clock(on)
-  fakeMac(on, () => true, { stateFails: 1, stateError: 'snapcam-cli: iPhone «Тест» не отвечает.' })
+  fakeMac(on, () => true, { stateFails: 2, stateError: 'snapcam-cli: iPhone «Тест» не отвечает.' })
   const ui = await openPane($)
   await clock.advance(1000)
 
@@ -436,7 +479,7 @@ test('a pane gone from the list stops the stream and the command starts a new on
   expect(fake.spawns).toHaveLength(2)
 })
 
-test('every external camera that state lists joins the camera picker by its id and name', async ($, on) => {
+test('every external camera that state lists gets a camera button by its id and name', async ($, on) => {
   const clock = mock.clock(on)
   const externals = [
     { id: 'usb', kind: 'external', name: 'USB Camera', selected: false },
@@ -446,24 +489,24 @@ test('every external camera that state lists joins the camera picker by its id a
   const ui = await openPane($)
   await clock.advance(1000)
 
-  const options = (await ui.find({ key: 'camera' }))?.props.options as { value: string; label: string }[]
-  expect(options.map(o => o.label)).toEqual(['iPhone', 'Desk View', 'USB Camera', 'Capture Card'])
-  await ui.select({ key: 'camera', value: 'external:usb' })
+  const labels = (await ui.findAll({ type: 'Button' })).filter(b => String(b.key).startsWith('camera:')).map(b => b.props.label)
+  expect(labels).toEqual(['iPhone', 'Desk View', 'USB Camera', 'Capture Card'])
+  await ui.press({ key: 'camera:external:usb' })
   await clock.advance(1000)
   let spawn = fake.spawns.at(-1) ?? []
   expect(spawn[spawn.indexOf('--source') + 1]).toBe('usb')
   expect((await ui.find({ key: 'status' }))?.text).toContain('USB Camera')
-  expect((await ui.find({ key: 'camera' }))?.props.value).toBe('external:usb')
+  expect((await ui.find({ key: 'camera:external:usb' }))?.props.variant).toBe('primary')
 
   await ui.press({ key: 'shoot' })
   const capture = fake.calls.find(args => args[0] === 'capture') ?? []
   expect(capture[capture.indexOf('--source') + 1]).toBe('usb')
 
-  await ui.select({ key: 'camera', value: 'external:cap' })
+  await ui.press({ key: 'camera:external:cap' })
   await clock.advance(1000)
   spawn = fake.spawns.at(-1) ?? []
   expect(spawn[spawn.indexOf('--source') + 1]).toBe('cap')
-  expect((await ui.find({ key: 'camera' }))?.props.value).toBe('external:cap')
+  expect((await ui.find({ key: 'camera:external:cap' }))?.props.variant).toBe('primary')
   await ui.unmount()
 })
 
@@ -528,7 +571,7 @@ test('stale frame folders of other sessions are swept once', async ($, on) => {
   const fake = fakeMac(on, () => true)
   const ui = await openPane($)
   await clock.advance(1000)
-  await ui.select({ key: 'camera', value: 'desk' })
+  await ui.press({ key: 'camera:desk' })
   await clock.advance(1000)
   expect(fake.spawns.length).toBeGreaterThan(1)
 

@@ -154,9 +154,13 @@ pre-0.9.1 helper (`SnapCam.app`, `built.swift`, `mc/`, `*.txt`, `debug.log`) are
   The `ui.close` hook passes the close on at once and cleans up after (0.11.2): the engine lists a
   closing pane until the chain ends, and a held close let `tick` restart the stream. A module flag
   `closed` (set by the close, cleared only by `openLive`) keeps ticks from streaming a closed pane.
-  Camera and light are `Select`s (0.11.3; a table without `Select` keeps the old cycle buttons): «Свет» =
-  Выкл (light off + flash off), Авто (light off + flash auto), Свет 25/50/100% (`light`).
-  The camera picker also offers every external camera `state` lists, by id (`--source <id>`,
+  Camera is a row of Buttons (`camera:<mode>`, `camera:external:<id>`; the current one primary) and
+  light a stepper `💡−` `light` `💡+` over 0/25/50/75/100 % (0 or the middle = light off + flash off;
+  no torch: a `flash` on/off toggle). No `Select` in the pane: the desktop redraws the whole pane per
+  frame, which rebuilt the open dropdown. The video Svg gets a fixed size (8 px per column, a guess),
+  and a frame mid-write keeps the last picture. `state` is re-read on the first frame without caps or
+  after an error, and every 2 s while the phone has no caps.
+  The camera buttons also offer every external camera `state` lists, by id (`--source <id>`,
   the state's name on the button and status line, `paneSource` atom; not in the MCP enums);
   `last-mode.txt` may say `external` and Fast Capture then shoots the first one.
   Pane and band messages are one Russian message (`paneFailure`, 0.11.2): a translated or
@@ -253,8 +257,8 @@ test (`SNAPCAM_MOD=<this repo> swift test --filter modCopiesMatchTheRenderer`). 
 
 ## Open / unverified
 
-- 0.11.3 (branch `feat/plugin-ui`): camera and light pickers, band hover magnifier. Checked with
-  `claude plugin test` only; Select and the hover veil not seen in the desktop app yet.
+- 0.11.3 (branch `feat/plugin-ui`): camera buttons, light stepper, band hover ⌕. Checked with
+  `claude plugin test` only; the fixed video size and hover veil not seen in the desktop app yet.
 
 - 0.11.2 (branch `fix/device-9`): the pane reopened after the person closed it, and pane errors
   came out Russian + English. Checked with `claude plugin test` only; the close needs a look in

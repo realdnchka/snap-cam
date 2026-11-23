@@ -67,6 +67,12 @@ export type FakeOptions = {
   noInbox?: boolean
   // SnapCam for Mac isn't installed.
   noCli?: boolean
+  // `state` reports no phone this many times first.
+  noPhone?: number
+  // The phone has flash but no light.
+  noTorch?: boolean
+  // The live child sends no frames.
+  noFrames?: boolean
 }
 
 const ok = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -78,6 +84,8 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
   const stateError = options.stateError ?? "snapcam-cli: SnapCam isn't running."
   const recent = options.recent ?? [ORIGINAL]
   let stateFails = options.stateFails ?? 0
+  let noPhone = options.noPhone ?? 0
+  if (options.noTorch) state.caps = { ...state.caps, hasTorch: false, maxLightLevel: 0 }
   const surfaces = options.surfaces ?? (() => ['desktop'])
   const fake: Fake = { calls: [], runs: [], spawns: [], stopped: 0, blits: [], opened: false, reads: [] }
   mock.env(on, { HOME, SNAPCAM_CLI: CLI })
@@ -99,6 +107,10 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
         if (stateFails > 0) {
           stateFails -= 1
           return { value: { exitCode: 69, stdout: '', stderr: stateError, isStdoutTruncated: false, isStderrTruncated: false } }
+        }
+        if (noPhone > 0) {
+          noPhone -= 1
+          return ok(JSON.stringify({ appVersion: '1', sources: state.sources }))
         }
         return ok(JSON.stringify(state))
       case 'recent': return ok(JSON.stringify({ folder: '/Pictures/SnapCam/Default', items: recent.map(original => ({ original })) }))
@@ -132,7 +144,7 @@ export function fakePaneMac(on: On, shown: () => boolean, options: FakeOptions =
     }
     const png = e.argv.includes('--png') ? `${LIVE}/live.png` : undefined
     try {
-      for (let seq = 1; seq <= 2; seq += 1) {
+      for (let seq = 1; seq <= (options.noFrames ? 0 : 2); seq += 1) {
         yield { stream: 'stdout' as const, text: JSON.stringify({ seq, preview: `${LIVE}/live.jpg`, png, width: 640, height: 480, lens: live.lens, zoom: live.zoom, phone: 'iPhone', ms: 9 }) + '\n' }
       }
       for (const line of tail) yield { stream: 'stdout' as const, text: JSON.stringify(line) + '\n' }
