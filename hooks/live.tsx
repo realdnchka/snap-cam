@@ -578,6 +578,8 @@ export function registerLive(on: On): void {
       <Box key="tabs" flexDirection="row" gap={1}>
         <Button key="tab:camera" label="🎥 Камера" variant={tab === 'camera' ? 'primary' : undefined} onPress={setTab('camera')} />
         <Button key="tab:gallery" label="🖼 Галерея" variant={tab === 'gallery' ? 'primary' : undefined} onPress={setTab('gallery')} />
+        {/* The desktop tab mark may not close a plugin pane. */}
+        {e.surface === 'desktop' && <Button key="close" label="✕ Закрыть" plain dimColor onPress={() => void $.ui.close({ id: LIVE_PANE })} />}
       </Box>
     )
     const noteRow = note ? <Text color="red">{note}</Text> : null
